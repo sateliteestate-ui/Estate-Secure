@@ -1,0 +1,7 @@
+{
+  "name": "EstateSecure",
+  "description": "Secure management, seamless registration, and digital identification for modern living communities.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
