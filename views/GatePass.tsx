@@ -235,7 +235,7 @@ export const GatePass: React.FC<GatePassProps> = ({
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.setAttribute("playsinline", "true"); // Fix for iOS
+        // Wait for metadata to load then play
         videoRef.current.onloadedmetadata = () => {
              videoRef.current?.play().catch(e => console.error("Play error:", e));
              requestRef.current = requestAnimationFrame(tick);
@@ -405,7 +405,13 @@ export const GatePass: React.FC<GatePassProps> = ({
           /* Scan Modes (Resident/Visitor) */
           isScanning ? (
               <div className="relative rounded-xl overflow-hidden bg-black aspect-video flex items-center justify-center">
-                  <video ref={videoRef} className="w-full h-full object-cover" />
+                  <video 
+                    ref={videoRef} 
+                    className="w-full h-full object-cover" 
+                    autoPlay 
+                    playsInline 
+                    muted 
+                  />
                   <canvas ref={canvasRef} className="hidden" />
                   <div className="absolute inset-0 border-2 border-white/50 m-8 rounded-lg pointer-events-none">
                       <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white/80 font-bold text-sm bg-black/50 px-3 py-1 rounded">Scanning...</div>
