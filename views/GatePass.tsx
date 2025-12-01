@@ -2,8 +2,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ViewType, Resident, VisitorPass, VisitRequest } from '../types';
-import { QrCode, ScanLine, UserCheck, Users, CheckCircle, XCircle, Camera, X, MessageSquarePlus, RefreshCw } from 'lucide-react';
+import { ViewType, Resident, VisitorPass, VisitRequest, ResidentToken } from '../types';
+import { QrCode, ScanLine, UserCheck, Users, CheckCircle, XCircle, Camera, X, MessageSquarePlus, RefreshCw, AlertOctagon } from 'lucide-react';
 
 interface GatePassProps {
   setView: (view: ViewType) => void;
@@ -53,56 +53,71 @@ export const GatePass: React.FC<GatePassProps> = ({
 
     try {
       if (activeMode === 'resident') {
-        const q = query(collection(db, 'residents'), where('gatePassCode', '==', trimmedCode));
-        const snapshot = await getDocs(q);
+        // 1. Try checking Residents collection (Payment ID / Gate Pass Code)
+        const qResident = query(collection(db, 'residents'), where('gatePassCode', '==', trimmedCode));
+        const snapshotResident = await getDocs(qResident);
 
-        if (!snapshot.empty) {
-          const resData = snapshot.docs[0].data({ serverTimestamps: 'estimate' }) as Resident;
-          
-          if (resData.active === false) {
-             setScanResult({
-               status: 'error',
-               title: 'Access Denied',
-               type: 'resident',
-               details: { message: "Resident has moved out. Access Revoked." }
-             });
-             showToast("Resident Inactive", "error");
-             setLoading(false);
-             return;
-          }
+        if (!snapshotResident.empty) {
+          const resData = snapshotResident.docs[0].data() as Resident;
+          processResidentAccess(resData);
+          setLoading(false);
+          return;
+        }
 
-          if (resData.verified) {
-             setScanResult({
-               status: 'success',
-               title: 'Access Granted',
-               type: 'resident',
-               details: resData
-             });
-             showToast("Resident Gate Pass Verified", "success");
-          } else {
-             setScanResult({
-               status: 'error',
-               title: 'Access Denied',
-               type: 'resident',
-               details: { message: "Resident exists but not verified." }
-             });
-             showToast("Resident Not Verified", "error");
-          }
-        } else {
-          setScanResult({
+        // 2. Try checking Resident Tokens collection (Annual Tokens)
+        const qToken = query(collection(db, 'resident_tokens'), where('token', '==', trimmedCode));
+        const snapshotToken = await getDocs(qToken);
+
+        if (!snapshotToken.empty) {
+            const tokenData = snapshotToken.docs[0].data() as ResidentToken;
+            
+            if (tokenData.status === 'unused') {
+                 setScanResult({
+                   status: 'error',
+                   title: 'Token Not Activated',
+                   type: 'resident',
+                   details: { message: "This token has not been activated by any resident." }
+                 });
+                 showToast("Inactive Token", "error");
+                 setLoading(false);
+                 return;
+            }
+
+            if (tokenData.residentId) {
+                // Fetch the resident details linked to this token
+                const resDoc = await getDoc(doc(db, 'residents', tokenData.residentId));
+                if (resDoc.exists()) {
+                     const resData = resDoc.data() as Resident;
+                     processResidentAccess(resData);
+                } else {
+                    setScanResult({
+                        status: 'error',
+                        title: 'Linked Resident Not Found',
+                        type: 'resident',
+                        details: { message: "The resident linked to this token does not exist." }
+                     });
+                }
+            }
+            setLoading(false);
+            return;
+        }
+
+        // If neither found
+        setScanResult({
              status: 'error',
              title: 'Invalid Pass',
              type: 'resident',
-             details: { message: "Payment ID not found in system." }
-          });
-          showToast("ID Not Found", "error");
-        }
+             details: { message: "ID or Token not found in system." }
+        });
+        showToast("ID Not Found", "error");
+        
       } else {
+        // VISITOR MODE
         const q = query(collection(db, 'visitor_passes'), where('accessCode', '==', trimmedCode));
         const snapshot = await getDocs(q);
 
         if (!snapshot.empty) {
-          const visData = snapshot.docs[0].data({ serverTimestamps: 'estimate' }) as VisitorPass;
+          const visData = snapshot.docs[0].data() as VisitorPass;
           setScanResult({
             status: 'success',
             title: 'Visitor Access Granted',
@@ -126,6 +141,37 @@ export const GatePass: React.FC<GatePassProps> = ({
     } finally {
       setLoading(false);
     }
+  };
+
+  const processResidentAccess = (resData: Resident) => {
+      if (resData.active === false) {
+          setScanResult({
+            status: 'error',
+            title: 'Access Denied',
+            type: 'resident',
+            details: { message: "Resident has moved out. Access Revoked." }
+          });
+          showToast("Resident Inactive", "error");
+          return;
+       }
+
+       if (resData.verified) {
+          setScanResult({
+            status: 'success',
+            title: 'Access Granted',
+            type: 'resident',
+            details: resData
+          });
+          showToast("Resident Verified", "success");
+       } else {
+          setScanResult({
+            status: 'error',
+            title: 'Access Denied',
+            type: 'resident',
+            details: { message: "Resident exists but not verified." }
+          });
+          showToast("Resident Not Verified", "error");
+       }
   };
 
   const handleManualSubmit = async (e: React.FormEvent) => {
@@ -227,29 +273,44 @@ export const GatePass: React.FC<GatePassProps> = ({
 
   // --- Camera Logic ---
   const startScanning = async () => {
+    // 1. Check if browser supports mediaDevices
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showToast("Camera not supported on this browser/device.", "error");
+        return;
+    }
+
     setIsScanning(true);
     setScanResult(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: "environment" } 
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        // Wait for metadata to load then play
-        videoRef.current.onloadedmetadata = () => {
-             videoRef.current?.play().catch(e => console.error("Play error:", e));
-             requestRef.current = requestAnimationFrame(tick);
-        };
-      }
-    } catch (err: any) {
-      console.error("Camera error:", err);
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-         showToast("Camera access denied. Please enable permissions in browser settings.", "error");
-      } else {
-         showToast("Unable to access camera.", "error");
-      }
-      setIsScanning(false);
-    }
+    
+    // Give time for the video element to be rendered in the DOM
+    setTimeout(async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "environment" } 
+          });
+          
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            // Wait for metadata to load then play
+            videoRef.current.onloadedmetadata = () => {
+                 videoRef.current?.play().catch(e => console.error("Play error:", e));
+                 requestRef.current = requestAnimationFrame(tick);
+            };
+          } else {
+             console.error("Video ref is null despite isScanning true");
+          }
+        } catch (err: any) {
+          console.error("Camera error:", err);
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+             showToast("Camera access denied. Check browser settings.", "error");
+          } else if (err.name === 'NotFoundError') {
+             showToast("No camera found on this device.", "error");
+          } else {
+             showToast("Unable to access camera. Ensure you are using HTTPS.", "error");
+          }
+          setIsScanning(false);
+        }
+    }, 100);
   };
 
   const stopScanning = () => {
@@ -427,10 +488,18 @@ export const GatePass: React.FC<GatePassProps> = ({
                           value={scanInput}
                           onChange={(e) => setScanInput(e.target.value.toUpperCase())}
                           className="w-full pl-10 pr-4 py-4 border-2 border-gray-300 rounded-xl focus:border-indigo-500 outline-none font-mono uppercase text-lg text-center tracking-widest"
-                          placeholder={activeMode === 'resident' ? "Scan Payment ID" : "Scan Visitor Code"}
+                          placeholder={activeMode === 'resident' ? "Scan Payment ID / Token" : "Scan Visitor Code"}
                       />
                       <QrCode className="absolute left-3 top-5 text-gray-400" size={20} />
                   </div>
+                  
+                  {/* HTTPS Warning for debugging */}
+                  {!window.isSecureContext && window.location.hostname !== 'localhost' && (
+                     <div className="bg-yellow-100 text-yellow-800 p-2 rounded text-xs flex items-center gap-2">
+                        <AlertOctagon size={16} /> Camera requires HTTPS or Localhost.
+                     </div>
+                  )}
+
                   <div className="flex gap-3">
                       <button type="button" onClick={startScanning} className="flex-1 bg-gray-800 text-white py-4 rounded-xl font-bold text-lg hover:bg-gray-900 transition flex items-center justify-center gap-2"><Camera /> Scan Camera</button>
                       <button type="submit" disabled={loading} className={`flex-1 text-white py-4 rounded-xl font-bold text-lg transition disabled:opacity-50 flex items-center justify-center gap-2 ${activeMode === 'resident' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-blue-600 hover:bg-blue-700'}`}>

@@ -36,6 +36,9 @@ export interface Resident {
   gatePassCode?: string;
   photoUrl?: string;
   active?: boolean;
+  annualToken?: string;
+  annualTokenSerial?: string;
+  annualTokenActivatedAt?: any; // Timestamp
 }
 
 export interface Payment {
@@ -111,6 +114,19 @@ export interface AccessPin {
   createdAt: any; // Using any for Timestamp compatibility during generation
   expiresAt: any;
   status: 'active' | 'used';
+  serialNumber: string;
+}
+
+export interface ResidentToken {
+  id?: string;
+  token: string;
+  estateId: string;
+  estateName?: string;
+  createdAt: any;
+  expiresAt: any;
+  status: 'active' | 'unused';
+  residentId?: string;
+  residentName?: string;
   serialNumber: string;
 }
 

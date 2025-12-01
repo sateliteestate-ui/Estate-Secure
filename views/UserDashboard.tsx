@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { LogOut, CreditCard, History, CheckCircle, Clock, Phone, AlertTriangle, UserPlus, MessageSquare, Upload, QrCode, X, Bell, ThumbsUp, ThumbsDown, MessageSquareMore, Banknote } from 'lucide-react';
+import { LogOut, CreditCard, History, CheckCircle, Clock, Phone, AlertTriangle, UserPlus, MessageSquare, Upload, QrCode, X, Bell, ThumbsUp, ThumbsDown, MessageSquareMore, Banknote, Ticket, Calendar, ShieldCheck } from 'lucide-react';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Resident, ViewType, Payment, VisitRequest, Estate } from '../types';
+import { Resident, ViewType, Payment, VisitRequest, Estate, ResidentToken } from '../types';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 
 interface UserDashboardProps {
@@ -25,7 +25,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [estateInfo, setEstateInfo] = useState<Estate | null>(null);
   
   // Modals
-  const [activeModal, setActiveModal] = useState<'none' | 'visitor' | 'complaint' | 'payment'>('none');
+  const [activeModal, setActiveModal] = useState<'none' | 'visitor' | 'complaint' | 'payment' | 'token_activation'>('none');
   const [processing, setProcessing] = useState(false);
   
   // Generated Codes
@@ -44,6 +44,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
      houseId: '',
      receipt: ''
   });
+  const [tokenInput, setTokenInput] = useState('');
   
   // Approval Note State
   const [approvalNotes, setApprovalNotes] = useState<{[key: string]: string}>({});
@@ -223,6 +224,71 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     }
   };
 
+  const handleTokenActivation = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setProcessing(true);
+      const cleanedToken = tokenInput.trim().toUpperCase();
+
+      try {
+          const q = query(collection(db, 'resident_tokens'), where('token', '==', cleanedToken));
+          const snapshot = await getDocs(q);
+
+          if (snapshot.empty) {
+              showToast("Invalid Token Code", "error");
+              setProcessing(false);
+              return;
+          }
+
+          const tokenDoc = snapshot.docs[0];
+          const tokenData = tokenDoc.data() as ResidentToken;
+
+          if (tokenData.estateId !== residentData.estateId) {
+              showToast("This token belongs to a different estate", "error");
+              setProcessing(false);
+              return;
+          }
+
+          if (tokenData.status === 'active') {
+              showToast("This token has already been activated by a resident.", "error");
+              setProcessing(false);
+              return;
+          }
+          
+          // Link to token document
+          await updateDoc(doc(db, 'resident_tokens', tokenDoc.id), {
+              status: 'active',
+              residentId: residentData.id,
+              residentName: residentData.fullName
+          });
+
+          // Link to resident profile with activation details
+          if (residentData.id) {
+            await updateDoc(doc(db, 'residents', residentData.id), {
+              annualToken: cleanedToken,
+              annualTokenSerial: tokenData.serialNumber,
+              annualTokenActivatedAt: serverTimestamp()
+            });
+            // Update local state
+            setResidentData({ 
+                ...residentData, 
+                annualToken: cleanedToken,
+                annualTokenSerial: tokenData.serialNumber,
+                annualTokenActivatedAt: new Date() // approximate for immediate UI update
+            });
+          }
+
+          showToast("Token Activated Successfully!", "success");
+          setActiveModal('none');
+          setTokenInput('');
+
+      } catch (err) {
+          console.error(err);
+          showToast("Failed to activate token", "error");
+      } finally {
+          setProcessing(false);
+      }
+  };
+
   const closeModal = () => {
       setActiveModal('none');
       setGeneratedVisitorCode(null);
@@ -267,6 +333,28 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </button>
         </div>
       </div>
+      
+      {/* Annual Pass Card (If Activated) */}
+      {residentData.annualToken && (
+         <div className="bg-indigo-900 text-white p-4 rounded-xl shadow-md border-l-4 border-indigo-400 flex flex-col md:flex-row justify-between items-center gap-4">
+             <div className="flex items-center gap-3">
+                 <div className="bg-indigo-800 p-3 rounded-full">
+                     <Ticket className="text-indigo-200" size={24} />
+                 </div>
+                 <div>
+                     <h3 className="font-bold text-lg leading-tight">Annual Access Pass Active</h3>
+                     <p className="text-indigo-300 text-xs font-mono">Serial: {residentData.annualTokenSerial || 'N/A'}</p>
+                     <p className="text-indigo-300 text-xs flex items-center gap-1 mt-1">
+                         <Calendar size={10} /> Valid thru Dec 31
+                     </p>
+                 </div>
+             </div>
+             <div className="bg-white text-indigo-900 px-4 py-2 rounded-lg text-center min-w-[120px]">
+                 <p className="text-xs font-bold uppercase text-indigo-500">Token Code</p>
+                 <p className="text-xl font-mono font-bold tracking-widest">{residentData.annualToken}</p>
+             </div>
+         </div>
+      )}
       
       {/* NOTIFICATIONS SECTION */}
       {visitRequests.length > 0 && (
@@ -326,9 +414,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
              <div className="p-3 bg-orange-50 rounded-full text-orange-600"><MessageSquare /></div>
              <span className="font-semibold text-gray-700">Complaint</span>
          </button>
-         <button className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col items-center gap-2 cursor-not-allowed opacity-60">
-             <div className="p-3 bg-gray-200 rounded-full text-gray-500"><History /></div>
-             <span className="font-semibold text-gray-500">Notices</span>
+         <button onClick={() => setActiveModal('token_activation')} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 hover:border-indigo-500 hover:shadow-md transition flex flex-col items-center gap-2">
+             <div className="p-3 bg-indigo-50 rounded-full text-indigo-600"><Ticket /></div>
+             <span className="font-semibold text-gray-700">Activate Token</span>
          </button>
       </div>
 
@@ -475,6 +563,29 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                                 <button disabled={processing} className="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700">{processing ? 'Processing...' : 'Submit Payment'}</button>
                             </form>
                         )}
+                    </>
+                )}
+
+                {/* TOKEN ACTIVATION MODAL */}
+                {activeModal === 'token_activation' && (
+                    <>
+                         <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><Ticket className="text-indigo-600"/> Activate Annual Token</h3>
+                         <form onSubmit={handleTokenActivation} className="space-y-4">
+                             <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-lg">
+                                 <p className="text-sm text-indigo-800 mb-1 font-bold">Enter the code from your annual token</p>
+                                 <p className="text-xs text-indigo-600">This links the token to your digital profile for gate access. One-time use only.</p>
+                             </div>
+                             <input 
+                                required 
+                                className="w-full p-4 border-2 border-indigo-200 rounded-xl text-center font-mono text-xl tracking-widest uppercase focus:border-indigo-500 outline-none" 
+                                placeholder="RES-XXXXX"
+                                value={tokenInput} 
+                                onChange={e => setTokenInput(e.target.value.toUpperCase())} 
+                             />
+                             <button disabled={processing} className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 flex items-center justify-center gap-2">
+                                 {processing ? 'Activating...' : 'Activate Token'}
+                             </button>
+                         </form>
                     </>
                 )}
             </div>

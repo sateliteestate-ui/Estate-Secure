@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Estate, Resident, VisitorPass, ChangeRequest, ViewType } from '../types';
 import { LoadingSpinner } from '../components/LoadingSpinner';
-import { LogOut, Database, Users, Building, Ticket, AlertCircle, Printer, Check, X, Edit, Save } from 'lucide-react';
+import { LogOut, Database, Users, Building, Ticket, AlertCircle, Printer, Check, X, Edit, Save, Trash2, AlertTriangle } from 'lucide-react';
 
 interface SuperAdminDashboardProps {
   setView: (view: ViewType) => void;
@@ -23,6 +23,11 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
   // Editing State
   const [editingItem, setEditingItem] = useState<any | null>(null);
   const [editCollection, setEditCollection] = useState<string>('');
+
+  // Delete State
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [estateToDelete, setEstateToDelete] = useState<Estate | null>(null);
+  const [deleteConfirmationName, setDeleteConfirmationName] = useState('');
 
   useEffect(() => {
     fetchAllData();
@@ -106,6 +111,35 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
       }
   };
 
+  const initiateDeleteEstate = (estate: Estate) => {
+    setEstateToDelete(estate);
+    setDeleteConfirmationName('');
+    setDeleteModalOpen(true);
+  };
+
+  const handleDeleteEstate = async () => {
+    if (!estateToDelete || !estateToDelete.id) return;
+    
+    if (deleteConfirmationName !== estateToDelete.name) {
+      showToast("Estate name does not match.", "error");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await deleteDoc(doc(db, 'estates', estateToDelete.id));
+      setEstates(prev => prev.filter(e => e.id !== estateToDelete.id));
+      showToast("Estate deleted successfully", "success");
+      setDeleteModalOpen(false);
+      setEstateToDelete(null);
+    } catch (err) {
+      console.error(err);
+      showToast("Failed to delete estate", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in relative">
         <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl flex justify-between items-center print:hidden">
@@ -143,7 +177,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
                 </button>
             </div>
             
-            {loading && !editingItem ? <LoadingSpinner /> : (
+            {loading && !editingItem && !deleteModalOpen ? <LoadingSpinner /> : (
                 <div className="overflow-x-auto">
                     {activeTab === 'estates' && (
                         <table className="w-full text-left text-sm text-gray-600">
@@ -167,9 +201,12 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
                                         <td className="px-6 py-4">
                                             {e.approved ? <Check size={16} className="text-green-500"/> : <X size={16} className="text-red-500"/>}
                                         </td>
-                                        <td className="px-6 py-4 print:hidden">
-                                            <button onClick={() => openEditModal(e, 'estates')} className="text-indigo-600 hover:bg-indigo-50 p-1 rounded">
+                                        <td className="px-6 py-4 print:hidden flex gap-2">
+                                            <button onClick={() => openEditModal(e, 'estates')} className="text-indigo-600 hover:bg-indigo-50 p-1 rounded" title="Edit">
                                                 <Edit size={16} />
+                                            </button>
+                                            <button onClick={() => initiateDeleteEstate(e)} className="text-red-600 hover:bg-red-50 p-1 rounded" title="Delete">
+                                                <Trash2 size={16} />
                                             </button>
                                         </td>
                                     </tr>
@@ -282,6 +319,53 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
                 </div>
             )}
         </div>
+
+        {/* Delete Confirmation Modal */}
+        {deleteModalOpen && estateToDelete && (
+            <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+                <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl animate-bounce-in p-6">
+                    <div className="flex flex-col items-center text-center mb-6">
+                        <div className="bg-red-100 p-3 rounded-full mb-4">
+                            <AlertTriangle size={32} className="text-red-600" />
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-900">Delete Estate?</h3>
+                        <p className="text-gray-500 text-sm mt-2">
+                            This action cannot be undone. This will permanently delete 
+                            <span className="font-bold text-gray-800"> {estateToDelete.name}</span> and all associated data.
+                        </p>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Type estate name to confirm</label>
+                            <input 
+                                type="text" 
+                                className="w-full p-3 border-2 border-red-200 rounded-lg focus:border-red-500 outline-none"
+                                placeholder={estateToDelete.name}
+                                value={deleteConfirmationName}
+                                onChange={(e) => setDeleteConfirmationName(e.target.value)}
+                                onPaste={(e) => setDeleteConfirmationName(e.clipboardData.getData('Text'))}
+                            />
+                        </div>
+
+                        <button 
+                            onClick={handleDeleteEstate}
+                            disabled={deleteConfirmationName !== estateToDelete.name || loading}
+                            className="w-full bg-red-600 text-white py-3 rounded-lg font-bold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                            {loading ? 'Deleting...' : <><Trash2 size={18} /> Confirm Deletion</>}
+                        </button>
+                        
+                        <button 
+                            onClick={() => setDeleteModalOpen(false)}
+                            className="w-full bg-gray-100 text-gray-700 py-3 rounded-lg font-bold hover:bg-gray-200"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
 
         {/* Generic Edit Modal */}
         {editingItem && (

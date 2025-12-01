@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { LogOut, ScanLine, QrCode, Search, CheckCircle, Info, Users, ShieldCheck, XCircle, MessageSquare, AlertCircle, X, ThumbsUp, ThumbsDown, HelpCircle, Send, Bell, MessageSquareMore, Ban, Ticket, Printer, Download } from 'lucide-react';
+import { LogOut, ScanLine, QrCode, Search, CheckCircle, Info, Users, ShieldCheck, XCircle, MessageSquare, AlertCircle, X, ThumbsUp, ThumbsDown, HelpCircle, Send, Bell, MessageSquareMore, Ban, Ticket, Printer, Download, UserCheck } from 'lucide-react';
 import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Estate, ViewType, Resident, Complaint, VisitRequest, AccessPin } from '../types';
+import { Estate, ViewType, Resident, Complaint, VisitRequest, AccessPin, ResidentToken } from '../types';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 
 interface AdminDashboardProps {
@@ -29,8 +29,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [complaintList, setComplaintList] = useState<Complaint[]>([]);
   const [visitRequests, setVisitRequests] = useState<VisitRequest[]>([]);
   const [accessPins, setAccessPins] = useState<AccessPin[]>([]);
+  const [residentTokens, setResidentTokens] = useState<ResidentToken[]>([]);
   const [loadingList, setLoadingList] = useState(true);
-  const [activeTab, setActiveTab] = useState<'residents' | 'complaints' | 'visits' | 'pins'>('residents');
+  const [activeTab, setActiveTab] = useState<'residents' | 'complaints' | 'visits' | 'pins' | 'resident_tokens'>('residents');
   
   // Modal State
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
@@ -39,6 +40,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   
   // Pins State
   const [numPinsToGenerate, setNumPinsToGenerate] = useState<number>(20);
+  const [numTokensToGenerate, setNumTokensToGenerate] = useState<number>(20);
   const [generatingPins, setGeneratingPins] = useState(false);
 
   // Approval Notes
@@ -73,12 +75,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setVisitRequests(visits);
 
         // Fetch Access Pins
-        // Note: For simplicity, we are storing access pins in a root collection 'access_pins'
         const qPins = query(collection(db, 'access_pins'), where('estateId', '==', estateData.estateId));
         const snapshotPins = await getDocs(qPins);
         const pins = snapshotPins.docs.map(doc => ({ id: doc.id, ...doc.data() } as AccessPin));
-        // Sort by serial number if possible, or created date
         setAccessPins(pins);
+
+        // Fetch Resident Tokens
+        const qTokens = query(collection(db, 'resident_tokens'), where('estateId', '==', estateData.estateId));
+        const snapshotTokens = await getDocs(qTokens);
+        const tokens = snapshotTokens.docs.map(doc => ({ id: doc.id, ...doc.data() } as ResidentToken));
+        setResidentTokens(tokens);
 
     } catch (err) {
         console.error("Error fetching data", err);
@@ -95,9 +101,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const currentYear = new Date().getFullYear();
         const expiryDate = new Date(`${currentYear}-12-31T23:59:59`);
         
-        const newPins: AccessPin[] = [];
-
-        // Batch writes would be better but doing parallel for simplicity in this context
         const promises = [];
         
         for (let i = 0; i < numPinsToGenerate; i++) {
@@ -124,9 +127,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const handleDownloadPinsPdf = async () => {
-    // We will render the pins into a hidden container, then use html2canvas + jspdf
-    const printContainer = document.getElementById('pins-print-container');
+  const handleGenerateResidentTokens = async () => {
+    if (numTokensToGenerate <= 0) return;
+    setGeneratingPins(true);
+    
+    try {
+        const currentYear = new Date().getFullYear();
+        const expiryDate = new Date(`${currentYear}-12-31T23:59:59`);
+        
+        const promises = [];
+        
+        for (let i = 0; i < numTokensToGenerate; i++) {
+             // Resident tokens format "RES-XXXXXX"
+             const tokenCode = 'RES-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+             const serial = `RT-${Date.now()}-${i}`;
+             const newToken = {
+                 token: tokenCode,
+                 estateId: estateData.estateId,
+                 estateName: estateData.name,
+                 createdAt: serverTimestamp(),
+                 expiresAt: expiryDate,
+                 status: 'unused' as const,
+                 serialNumber: serial
+             };
+             promises.push(addDoc(collection(db, 'resident_tokens'), newToken));
+        }
+
+        await Promise.all(promises);
+        showToast(`Generated ${numTokensToGenerate} Resident Tokens`, "success");
+        fetchData();
+    } catch (err) {
+        showToast("Failed to generate resident tokens", "error");
+    } finally {
+        setGeneratingPins(false);
+    }
+  };
+
+  const handleDownloadPdf = async (elementId: string, filename: string) => {
+    const printContainer = document.getElementById(elementId);
     if (!printContainer) return;
 
     setLoading(true);
@@ -134,9 +172,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         // Unhide container temporarily for rendering
         printContainer.style.display = 'block';
         
+        // Wait a moment for layout to settle and images to be recognized
+        await new Promise(resolve => setTimeout(resolve, 500));
+
         // Use html2canvas
         // @ts-ignore
-        const canvas = await html2canvas(printContainer, { scale: 2 });
+        const canvas = await html2canvas(printContainer, { scale: 2, useCORS: true });
         const imgData = canvas.toDataURL('image/png');
         
         // Use jspdf
@@ -147,7 +188,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
         
         pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-        pdf.save(`${estateData.name}_AccessPins.pdf`);
+        pdf.save(`${estateData.name}_${filename}.pdf`);
         
         showToast("PDF Downloaded", "success");
     } catch (err) {
@@ -514,6 +555,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <Ticket size={18} /> Access Pins
                 <span className="bg-gray-100 px-2 py-0.5 rounded-full text-xs text-gray-600 ml-2">{accessPins.length}</span>
             </button>
+            <button 
+                className={`px-6 py-4 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'resident_tokens' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`}
+                onClick={() => setActiveTab('resident_tokens')}
+            >
+                <UserCheck size={18} /> Resident Tokens
+                <span className="bg-gray-100 px-2 py-0.5 rounded-full text-xs text-gray-600 ml-2">{residentTokens.length}</span>
+            </button>
         </div>
         
         {loadingList ? <LoadingSpinner /> : (
@@ -641,6 +689,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="p-6">
                         <div className="flex justify-between items-center mb-6">
                              <div className="flex items-center gap-2">
+                                 <label className="text-sm font-semibold text-gray-600">Count:</label>
                                  <input 
                                    type="number" 
                                    value={numPinsToGenerate}
@@ -654,7 +703,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                              </div>
                              
                              {accessPins.length > 0 && (
-                                 <button onClick={handleDownloadPinsPdf} className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-900 flex items-center gap-2">
+                                 <button onClick={() => handleDownloadPdf('pins-print-container', 'AccessPins')} className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-900 flex items-center gap-2">
                                      <Printer size={16} /> Download PDF
                                  </button>
                              )}
@@ -681,8 +730,74 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                     <div key={pin.id} className="border-2 border-dashed border-gray-400 p-2 text-center rounded-lg break-inside-avoid">
                                         <h4 className="font-bold text-xs uppercase mb-1">{estateData.name}</h4>
                                         <p className="text-xxs text-gray-500 mb-1">ANNUAL ACCESS PIN</p>
-                                        <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${pin.pin}`} className="w-20 h-20 mx-auto" />
+                                        <img 
+                                            src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${pin.pin}`} 
+                                            className="w-20 h-20 mx-auto" 
+                                            crossOrigin="anonymous"
+                                        />
                                         <p className="font-bold font-mono text-xl mt-1 tracking-widest">{pin.pin}</p>
+                                        <p className="text-xs mt-1">Valid thru Dec 31</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'resident_tokens' && (
+                    <div className="p-6">
+                        <div className="flex justify-between items-center mb-6">
+                             <div className="flex items-center gap-2">
+                                 <label className="text-sm font-semibold text-gray-600">Count:</label>
+                                 <input 
+                                   type="number" 
+                                   value={numTokensToGenerate}
+                                   onChange={(e) => setNumTokensToGenerate(parseInt(e.target.value) || 0)}
+                                   className="w-20 p-2 border rounded text-center"
+                                   min="1"
+                                 />
+                                 <button onClick={handleGenerateResidentTokens} disabled={generatingPins} className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 disabled:opacity-50 shadow-md">
+                                     {generatingPins ? 'Generating...' : 'Generate Tokens'}
+                                 </button>
+                             </div>
+                             
+                             {residentTokens.length > 0 && (
+                                 <button onClick={() => handleDownloadPdf('tokens-print-container', 'ResidentTokens')} className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-900 flex items-center gap-2 shadow-md">
+                                     <Printer size={16} /> Download PDF
+                                 </button>
+                             )}
+                        </div>
+                        
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            {residentTokens.length === 0 ? (
+                                <p className="col-span-4 text-center text-gray-400 py-10">No Resident Annual Tokens generated yet. Use the button above to generate a batch.</p>
+                            ) : residentTokens.map((token) => (
+                                <div key={token.id} className={`border p-3 rounded text-center relative overflow-hidden ${token.status === 'active' ? 'bg-green-50 border-green-200' : 'bg-gray-50'}`}>
+                                     <p className="font-bold font-mono text-lg tracking-widest">{token.token}</p>
+                                     <p className="text-xs text-gray-500 mt-1">Expires: Dec 31</p>
+                                     <p className={`text-xs font-bold uppercase mt-1 ${token.status === 'active' ? 'text-green-600' : 'text-gray-400'}`}>
+                                         {token.status === 'active' ? 'Activated' : 'Unused'}
+                                     </p>
+                                     <div className="mt-2 flex justify-center">
+                                         <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${token.token}`} alt="QR" className="w-16 h-16 mix-blend-multiply" />
+                                     </div>
+                                </div>
+                            ))}
+                        </div>
+
+                         {/* Hidden Container for PDF Printing Resident Tokens (4x5 grid for A4) */}
+                        <div id="tokens-print-container" style={{display: 'none', width: '210mm', background: 'white', padding: '10mm'}}>
+                            <div className="grid grid-cols-4 gap-4">
+                                {residentTokens.map((token) => (
+                                    <div key={token.id} className="border-2 border-dashed border-indigo-400 p-2 text-center rounded-lg break-inside-avoid">
+                                        <h4 className="font-bold text-xs uppercase mb-1">{estateData.name}</h4>
+                                        <p className="text-xxs text-indigo-800 font-bold mb-1">RESIDENT ANNUAL TOKEN</p>
+                                        <img 
+                                            src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${token.token}`} 
+                                            className="w-20 h-20 mx-auto" 
+                                            crossOrigin="anonymous"
+                                        />
+                                        <p className="font-bold font-mono text-xl mt-1 tracking-widest">{token.token}</p>
                                         <p className="text-xs mt-1">Valid thru Dec 31</p>
                                     </div>
                                 ))}
@@ -748,6 +863,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <div>
                                   <p className="text-xs font-bold text-indigo-400 uppercase">Approved Payment ID</p>
                                   <p className="text-xl font-mono font-bold text-indigo-800 tracking-wider">{selectedResident.gatePassCode}</p>
+                              </div>
+                          </div>
+                      )}
+                      
+                      {/* Annual Token Section */}
+                      {selectedResident.annualToken && selectedResident.active !== false && (
+                          <div className="bg-green-50 border border-green-100 p-4 rounded-xl flex items-center gap-4">
+                              <div className="bg-white p-1 rounded">
+                                  <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${selectedResident.annualToken}`} alt="Token QR" className="w-16 h-16" />
+                              </div>
+                              <div>
+                                  <p className="text-xs font-bold text-green-600 uppercase">Annual Resident Token</p>
+                                  <p className="text-xl font-mono font-bold text-green-800 tracking-wider">{selectedResident.annualToken}</p>
                               </div>
                           </div>
                       )}
