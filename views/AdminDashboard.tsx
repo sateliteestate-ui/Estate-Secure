@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { LogOut, ScanLine, QrCode, Search, CheckCircle, Info, Users, ShieldCheck, XCircle, MessageSquare, AlertCircle, X, ThumbsUp, ThumbsDown, HelpCircle, Send, Bell, MessageSquareMore, Ban } from 'lucide-react';
+import { LogOut, ScanLine, QrCode, Search, CheckCircle, Info, Users, ShieldCheck, XCircle, MessageSquare, AlertCircle, X, ThumbsUp, ThumbsDown, HelpCircle, Send, Bell, MessageSquareMore, Ban, Ticket, Printer, Download } from 'lucide-react';
 import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Estate, ViewType, Resident, Complaint, VisitRequest } from '../types';
+import { Estate, ViewType, Resident, Complaint, VisitRequest, AccessPin } from '../types';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 
 interface AdminDashboardProps {
@@ -28,14 +28,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [residentList, setResidentList] = useState<Resident[]>([]);
   const [complaintList, setComplaintList] = useState<Complaint[]>([]);
   const [visitRequests, setVisitRequests] = useState<VisitRequest[]>([]);
+  const [accessPins, setAccessPins] = useState<AccessPin[]>([]);
   const [loadingList, setLoadingList] = useState(true);
-  const [activeTab, setActiveTab] = useState<'residents' | 'complaints' | 'visits'>('residents');
+  const [activeTab, setActiveTab] = useState<'residents' | 'complaints' | 'visits' | 'pins'>('residents');
   
   // Modal State
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [requestForm, setRequestForm] = useState({ subject: '', details: '' });
   
+  // Pins State
+  const [numPinsToGenerate, setNumPinsToGenerate] = useState<number>(20);
+  const [generatingPins, setGeneratingPins] = useState(false);
+
   // Approval Notes
   const [adminNotes, setAdminNotes] = useState<{[key: string]: string}>({});
 
@@ -67,10 +72,90 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const visits = snapshotVis.docs.map(doc => ({ id: doc.id, ...doc.data() } as VisitRequest));
         setVisitRequests(visits);
 
+        // Fetch Access Pins
+        // Note: For simplicity, we are storing access pins in a root collection 'access_pins'
+        const qPins = query(collection(db, 'access_pins'), where('estateId', '==', estateData.estateId));
+        const snapshotPins = await getDocs(qPins);
+        const pins = snapshotPins.docs.map(doc => ({ id: doc.id, ...doc.data() } as AccessPin));
+        // Sort by serial number if possible, or created date
+        setAccessPins(pins);
+
     } catch (err) {
         console.error("Error fetching data", err);
     } finally {
         setLoadingList(false);
+    }
+  };
+
+  const handleGeneratePins = async () => {
+    if (numPinsToGenerate <= 0) return;
+    setGeneratingPins(true);
+    
+    try {
+        const currentYear = new Date().getFullYear();
+        const expiryDate = new Date(`${currentYear}-12-31T23:59:59`);
+        
+        const newPins: AccessPin[] = [];
+
+        // Batch writes would be better but doing parallel for simplicity in this context
+        const promises = [];
+        
+        for (let i = 0; i < numPinsToGenerate; i++) {
+             const pinCode = Math.floor(100000 + Math.random() * 900000).toString();
+             const serial = `PIN-${Date.now()}-${i}`;
+             const newPin = {
+                 pin: pinCode,
+                 estateId: estateData.estateId,
+                 createdAt: serverTimestamp(),
+                 expiresAt: expiryDate,
+                 status: 'active' as const,
+                 serialNumber: serial
+             };
+             promises.push(addDoc(collection(db, 'access_pins'), newPin));
+        }
+
+        await Promise.all(promises);
+        showToast(`Generated ${numPinsToGenerate} Access Pins`, "success");
+        fetchData(); // Refresh list
+    } catch (err) {
+        showToast("Failed to generate pins", "error");
+    } finally {
+        setGeneratingPins(false);
+    }
+  };
+
+  const handleDownloadPinsPdf = async () => {
+    // We will render the pins into a hidden container, then use html2canvas + jspdf
+    const printContainer = document.getElementById('pins-print-container');
+    if (!printContainer) return;
+
+    setLoading(true);
+    try {
+        // Unhide container temporarily for rendering
+        printContainer.style.display = 'block';
+        
+        // Use html2canvas
+        // @ts-ignore
+        const canvas = await html2canvas(printContainer, { scale: 2 });
+        const imgData = canvas.toDataURL('image/png');
+        
+        // Use jspdf
+        // @ts-ignore
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        pdf.save(`${estateData.name}_AccessPins.pdf`);
+        
+        showToast("PDF Downloaded", "success");
+    } catch (err) {
+        console.error(err);
+        showToast("PDF Generation Failed", "error");
+    } finally {
+        printContainer.style.display = 'none';
+        setLoading(false);
     }
   };
 
@@ -173,7 +258,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          setSelectedResident(updated);
          setResidentList(prev => prev.map(r => r.id === updated.id ? updated : r));
          showToast("User Deactivated / Moved Out", "success");
-         // Close modal or keep open to show status change? Keeping open to show change.
      } catch(err) {
          showToast("Deactivation Failed", "error");
      }
@@ -260,6 +344,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </button>
         </div>
       </div>
+      
+      {/* Pending Approval Banner */}
+      {!estateData.approved && (
+         <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-r shadow-md animate-pulse">
+            <div className="flex">
+               <div className="flex-shrink-0">
+                  <AlertCircle className="h-5 w-5 text-yellow-500" />
+               </div>
+               <div className="ml-3">
+                  <p className="text-sm text-yellow-700 font-bold">
+                     Pending Approval: <span className="font-normal">Your estate registration is pending Super Admin approval. Residents cannot register until approved.</span>
+                  </p>
+               </div>
+            </div>
+         </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
         
@@ -275,9 +375,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="text-2xl font-mono font-bold text-indigo-700 bg-indigo-50 px-4 py-2 rounded-lg tracking-wider border border-indigo-100 select-all cursor-pointer" onClick={() => {navigator.clipboard.writeText(estateData.estateId); showToast("Copied!", "success")}}>
                 {estateData.estateId}
             </div>
-            <div className="mt-4 text-sm text-gray-500">
+            <div className="mt-4 text-sm text-gray-500 w-full text-left">
                <p><span className="font-bold">Admin:</span> {estateData.adminName}</p>
                <p><span className="font-bold">Phone:</span> {estateData.phone || 'N/A'}</p>
+               
+               {/* Display Bank Details if available */}
+               {(estateData.bankName || estateData.accountNumber) && (
+                   <div className="mt-2 pt-2 border-t border-gray-100">
+                       <p><span className="font-bold">Bank:</span> {estateData.bankName || 'N/A'}</p>
+                       <p><span className="font-bold">Acc Name:</span> {estateData.accountName || 'N/A'}</p>
+                       <p><span className="font-bold">Acc No:</span> <span className="font-mono bg-gray-50 px-1 rounded">{estateData.accountNumber || 'N/A'}</span></p>
+                   </div>
+               )}
             </div>
         </div>
 
@@ -381,7 +490,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 className={`px-6 py-4 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'residents' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`}
                 onClick={() => setActiveTab('residents')}
             >
-                <Users size={18} /> Registered Residents
+                <Users size={18} /> Residents
                 <span className="bg-gray-100 px-2 py-0.5 rounded-full text-xs text-gray-600 ml-2">{residentList.length}</span>
             </button>
             <button 
@@ -395,8 +504,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 className={`px-6 py-4 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'visits' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`}
                 onClick={() => setActiveTab('visits')}
             >
-                <Bell size={18} /> Official Visits
+                <Bell size={18} /> Visits
                 <span className={`px-2 py-0.5 rounded-full text-xs ml-2 ${visitRequests.length > 0 ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 text-gray-600'}`}>{visitRequests.length}</span>
+            </button>
+            <button 
+                className={`px-6 py-4 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'pins' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`}
+                onClick={() => setActiveTab('pins')}
+            >
+                <Ticket size={18} /> Access Pins
+                <span className="bg-gray-100 px-2 py-0.5 rounded-full text-xs text-gray-600 ml-2">{accessPins.length}</span>
             </button>
         </div>
         
@@ -519,6 +635,60 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             ))}
                         </tbody>
                     </table>
+                )}
+
+                {activeTab === 'pins' && (
+                    <div className="p-6">
+                        <div className="flex justify-between items-center mb-6">
+                             <div className="flex items-center gap-2">
+                                 <input 
+                                   type="number" 
+                                   value={numPinsToGenerate}
+                                   onChange={(e) => setNumPinsToGenerate(parseInt(e.target.value) || 0)}
+                                   className="w-20 p-2 border rounded text-center"
+                                   min="1"
+                                 />
+                                 <button onClick={handleGeneratePins} disabled={generatingPins} className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 disabled:opacity-50">
+                                     {generatingPins ? 'Generating...' : 'Generate Pins'}
+                                 </button>
+                             </div>
+                             
+                             {accessPins.length > 0 && (
+                                 <button onClick={handleDownloadPinsPdf} className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-900 flex items-center gap-2">
+                                     <Printer size={16} /> Download PDF
+                                 </button>
+                             )}
+                        </div>
+                        
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            {accessPins.length === 0 ? (
+                                <p className="col-span-4 text-center text-gray-400">No Annual Access Pins generated yet.</p>
+                            ) : accessPins.map((pin) => (
+                                <div key={pin.id} className="border p-3 rounded bg-gray-50 text-center relative overflow-hidden">
+                                     <p className="font-bold font-mono text-lg tracking-widest">{pin.pin}</p>
+                                     <p className="text-xs text-gray-500 mt-1">Expires: Dec 31</p>
+                                     <div className="mt-2 flex justify-center">
+                                         <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${pin.pin}`} alt="QR" className="w-16 h-16 mix-blend-multiply" />
+                                     </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Hidden Container for PDF Printing (4 cols x 5 rows = 20 per page) */}
+                        <div id="pins-print-container" style={{display: 'none', width: '210mm', background: 'white', padding: '10mm'}}>
+                            <div className="grid grid-cols-4 gap-4">
+                                {accessPins.map((pin) => (
+                                    <div key={pin.id} className="border-2 border-dashed border-gray-400 p-2 text-center rounded-lg break-inside-avoid">
+                                        <h4 className="font-bold text-xs uppercase mb-1">{estateData.name}</h4>
+                                        <p className="text-xxs text-gray-500 mb-1">ANNUAL ACCESS PIN</p>
+                                        <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${pin.pin}`} className="w-20 h-20 mx-auto" />
+                                        <p className="font-bold font-mono text-xl mt-1 tracking-widest">{pin.pin}</p>
+                                        <p className="text-xs mt-1">Valid thru Dec 31</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
                 )}
             </div>
         )}

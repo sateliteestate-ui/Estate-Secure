@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { LogOut, CreditCard, History, CheckCircle, Clock, Phone, AlertTriangle, UserPlus, MessageSquare, Upload, QrCode, X, Bell, ThumbsUp, ThumbsDown, MessageSquareMore } from 'lucide-react';
+import { LogOut, CreditCard, History, CheckCircle, Clock, Phone, AlertTriangle, UserPlus, MessageSquare, Upload, QrCode, X, Bell, ThumbsUp, ThumbsDown, MessageSquareMore, Banknote } from 'lucide-react';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Resident, ViewType, Payment, VisitRequest } from '../types';
+import { Resident, ViewType, Payment, VisitRequest, Estate } from '../types';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 
 interface UserDashboardProps {
@@ -22,7 +22,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [payments, setPayments] = useState<Payment[]>([]);
   const [visitRequests, setVisitRequests] = useState<VisitRequest[]>([]);
   const [loadingPayments, setLoadingPayments] = useState(true);
-  const [estatePhone, setEstatePhone] = useState<string>('');
+  const [estateInfo, setEstateInfo] = useState<Estate | null>(null);
   
   // Modals
   const [activeModal, setActiveModal] = useState<'none' | 'visitor' | 'complaint' | 'payment'>('none');
@@ -59,7 +59,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         const q = query(collection(db, 'estates'), where('estateId', '==', residentData.estateId));
         const snapshot = await getDocs(q);
         if(!snapshot.empty) {
-            setEstatePhone(snapshot.docs[0].data().phone);
+            setEstateInfo({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Estate);
         }
     } catch(err) {
         console.error("Error fetching estate phone", err);
@@ -254,8 +254,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </div>
         </div>
         <div className="flex flex-wrap gap-2 justify-center">
-            {estatePhone && (
-                <a href={`tel:${estatePhone}`} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
+            {estateInfo?.phone && (
+                <a href={`tel:${estateInfo.phone}`} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
                     <Phone size={16} /> Call Admin
                 </a>
             )}
@@ -417,6 +417,27 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 {activeModal === 'payment' && (
                     <>
                         <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><CreditCard className="text-emerald-600"/> Pay Annual Levy</h3>
+                        
+                        {estateInfo?.bankName && (
+                             <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 mb-4 text-sm">
+                                  <div className="flex items-center gap-2 mb-2 text-gray-500 font-bold uppercase text-xs">
+                                      <Banknote size={14} /> Estate Account Details
+                                  </div>
+                                  <div className="flex justify-between border-b border-gray-200 pb-1 mb-1">
+                                      <span className="text-gray-600">Bank:</span>
+                                      <span className="font-bold text-gray-800">{estateInfo.bankName}</span>
+                                  </div>
+                                  <div className="flex justify-between border-b border-gray-200 pb-1 mb-1">
+                                      <span className="text-gray-600">Acc Name:</span>
+                                      <span className="font-bold text-gray-800">{estateInfo.accountName || estateInfo.name}</span> 
+                                  </div>
+                                  <div className="flex justify-between">
+                                      <span className="text-gray-600">Account:</span>
+                                      <span className="font-bold font-mono text-gray-800 tracking-wider select-all">{estateInfo.accountNumber}</span>
+                                  </div>
+                             </div>
+                        )}
+
                         {generatedPaymentCode ? (
                             <div className="flex flex-col items-center text-center space-y-4">
                                 <CheckCircle size={48} className="text-green-500" />

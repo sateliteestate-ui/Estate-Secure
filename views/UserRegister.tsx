@@ -66,6 +66,13 @@ export const UserRegister: React.FC<UserRegisterProps> = ({
 
       const estateInfo = estateSnap.docs[0].data();
 
+      // Check if Estate is Approved
+      if (!estateInfo.approved) {
+        showToast("This Estate has not been approved by the Super Admin yet. Registration unavailable.", "error");
+        setLoading(false);
+        return;
+      }
+
       // 2. Generate User ID
       const userId = 'USR-' + Math.random().toString(36).substring(2, 7).toUpperCase();
 

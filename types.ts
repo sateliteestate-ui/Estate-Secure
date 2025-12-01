@@ -16,6 +16,9 @@ export interface Estate {
   createdBy: string;
   createdAt: Timestamp;
   approved: boolean;
+  bankName?: string;
+  accountNumber?: string;
+  accountName?: string;
 }
 
 export interface Resident {
@@ -99,6 +102,16 @@ export interface ChangeRequest {
   details: string;
   status: 'pending' | 'resolved';
   date: Timestamp;
+}
+
+export interface AccessPin {
+  id?: string;
+  pin: string;
+  estateId: string;
+  createdAt: any; // Using any for Timestamp compatibility during generation
+  expiresAt: any;
+  status: 'active' | 'used';
+  serialNumber: string;
 }
 
 export type ViewType = 

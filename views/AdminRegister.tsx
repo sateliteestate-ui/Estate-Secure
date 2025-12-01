@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -20,7 +21,16 @@ export const AdminRegister: React.FC<AdminRegisterProps> = ({
   loading,
   user
 }) => {
-  const [formData, setFormData] = useState({ name: '', address: '', adminName: '', email: '', phone: '' });
+  const [formData, setFormData] = useState({ 
+    name: '', 
+    address: '', 
+    adminName: '', 
+    email: '', 
+    phone: '',
+    bankName: '',
+    accountNumber: '',
+    accountName: ''
+  });
 
   const generateEstateId = () => {
     // Generate a unique 6-character ID
@@ -39,7 +49,7 @@ export const AdminRegister: React.FC<AdminRegisterProps> = ({
       estateId: newEstateId,
       createdBy: user.uid,
       createdAt: serverTimestamp(),
-      approved: true 
+      approved: false // Default to false, pending Super Admin approval
     };
 
     try {
@@ -48,7 +58,7 @@ export const AdminRegister: React.FC<AdminRegisterProps> = ({
       setEstateData(newEstate as unknown as Estate);
       
       setView('admin-dashboard'); 
-      showToast(`Estate Registered! ID: ${newEstateId}`, 'success');
+      showToast(`Estate Registered! ID: ${newEstateId}. Pending Approval.`, 'success');
     } catch (err: any) {
       console.error(err);
       showToast("Registration failed: " + err.message, "error");
@@ -89,6 +99,28 @@ export const AdminRegister: React.FC<AdminRegisterProps> = ({
               <input required type="tel" className="w-full p-3 border rounded-lg" 
                 onChange={e => setFormData({...formData, phone: e.target.value})} />
             </div>
+        </div>
+
+        <div className="pt-4 border-t border-gray-100">
+           <h3 className="text-sm font-bold text-gray-500 uppercase mb-3">Bank Account Details</h3>
+           <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Account Name</label>
+              <input type="text" className="w-full p-3 border rounded-lg" 
+                placeholder="e.g. Sunrise Estate Association"
+                onChange={e => setFormData({...formData, accountName: e.target.value})} />
+           </div>
+           <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
+                  <input type="text" className="w-full p-3 border rounded-lg" 
+                    onChange={e => setFormData({...formData, bankName: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
+                  <input type="text" className="w-full p-3 border rounded-lg" 
+                    onChange={e => setFormData({...formData, accountNumber: e.target.value})} />
+                </div>
+           </div>
         </div>
         
         <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition">

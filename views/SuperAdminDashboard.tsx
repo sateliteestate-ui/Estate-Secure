@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -322,6 +323,23 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
                                         <input className="w-full p-2 border rounded" value={editingItem.phone || ''} onChange={(e) => handleInputChange('phone', e.target.value)} />
                                     </div>
                                 </div>
+
+                                {/* Bank Details */}
+                                <div className="grid grid-cols-2 gap-4 border-t pt-4 mt-2">
+                                    <div className="col-span-2">
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Account Name</label>
+                                        <input className="w-full p-2 border rounded" value={editingItem.accountName || ''} onChange={(e) => handleInputChange('accountName', e.target.value)} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Bank Name</label>
+                                        <input className="w-full p-2 border rounded" value={editingItem.bankName || ''} onChange={(e) => handleInputChange('bankName', e.target.value)} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Account Number</label>
+                                        <input className="w-full p-2 border rounded" value={editingItem.accountNumber || ''} onChange={(e) => handleInputChange('accountNumber', e.target.value)} />
+                                    </div>
+                                </div>
+
                                 <div className="flex items-center gap-2 pt-2">
                                     <input type="checkbox" id="approved" checked={editingItem.approved || false} onChange={(e) => handleInputChange('approved', e.target.checked)} className="w-5 h-5 text-indigo-600 rounded" />
                                     <label htmlFor="approved" className="font-bold text-gray-700">Approved</label>
