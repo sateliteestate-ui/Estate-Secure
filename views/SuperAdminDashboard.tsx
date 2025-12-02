@@ -30,10 +30,14 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
   const [editingItem, setEditingItem] = useState<any | null>(null);
   const [editCollection, setEditCollection] = useState<string>('');
 
-  // Delete State
+  // Delete Estate State (High Security)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [estateToDelete, setEstateToDelete] = useState<Estate | null>(null);
   const [deleteConfirmationName, setDeleteConfirmationName] = useState('');
+
+  // General Delete State (Residents, Visitors, Requests)
+  const [simpleDeleteModalOpen, setSimpleDeleteModalOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{ id: string; collection: string; title: string; typeLabel: string } | null>(null);
 
   useEffect(() => {
     fetchAllData();
@@ -187,6 +191,8 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
       }
   };
 
+  // --- DELETE LOGIC ---
+
   const initiateDeleteEstate = (estate: Estate) => {
     setEstateToDelete(estate);
     setDeleteConfirmationName('');
@@ -214,6 +220,38 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
     } finally {
       setLoading(false);
     }
+  };
+
+  const initiateSimpleDelete = (id: string, collectionName: string, title: string, typeLabel: string) => {
+      setItemToDelete({ id, collection: collectionName, title, typeLabel });
+      setSimpleDeleteModalOpen(true);
+  };
+
+  const handleConfirmSimpleDelete = async () => {
+      if (!itemToDelete) return;
+      
+      setLoading(true);
+      try {
+          await deleteDoc(doc(db, itemToDelete.collection, itemToDelete.id));
+          
+          // Update Local State based on collection
+          if (itemToDelete.collection === 'residents') {
+              setResidents(prev => prev.filter(r => r.id !== itemToDelete.id));
+          } else if (itemToDelete.collection === 'visitor_passes') {
+              setVisitors(prev => prev.filter(v => v.id !== itemToDelete.id));
+          } else if (itemToDelete.collection === 'change_requests') {
+              setRequests(prev => prev.filter(r => r.id !== itemToDelete.id));
+          }
+
+          showToast(`${itemToDelete.typeLabel} deleted successfully`, "success");
+          setSimpleDeleteModalOpen(false);
+          setItemToDelete(null);
+      } catch (err) {
+          console.error(err);
+          showToast("Failed to delete record", "error");
+      } finally {
+          setLoading(false);
+      }
   };
 
   return (
@@ -258,7 +296,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
                 </button>
             </div>
             
-            {loading && !editingItem && !deleteModalOpen ? <LoadingSpinner /> : (
+            {loading && !editingItem && !deleteModalOpen && !simpleDeleteModalOpen ? <LoadingSpinner /> : (
                 <div className="overflow-x-auto">
                     {activeTab === 'estates' && (
                         <table className="w-full text-left text-sm text-gray-600">
@@ -318,9 +356,12 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
                                             {r.verified ? <span className="text-green-600 font-bold">Verified</span> : <span className="text-yellow-600">Pending</span>}
                                         </td>
                                         <td className="px-6 py-4 font-mono">{r.gatePassCode || '-'}</td>
-                                        <td className="px-6 py-4 print:hidden">
+                                        <td className="px-6 py-4 print:hidden flex gap-2">
                                             <button onClick={() => openEditModal(r, 'residents')} className="text-indigo-600 hover:bg-indigo-50 p-1 rounded">
                                                 <Edit size={16} />
+                                            </button>
+                                            <button onClick={() => initiateSimpleDelete(r.id!, 'residents', r.fullName, 'Resident')} className="text-red-600 hover:bg-red-50 p-1 rounded" title="Delete">
+                                                <Trash2 size={16} />
                                             </button>
                                         </td>
                                     </tr>
@@ -347,9 +388,12 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
                                         <td className="px-6 py-4">{v.residentName}</td>
                                         <td className="px-6 py-4">{v.visitDate}</td>
                                         <td className="px-6 py-4 font-mono">{v.accessCode}</td>
-                                        <td className="px-6 py-4 print:hidden">
+                                        <td className="px-6 py-4 print:hidden flex gap-2">
                                             <button onClick={() => openEditModal(v, 'visitor_passes')} className="text-indigo-600 hover:bg-indigo-50 p-1 rounded">
                                                 <Edit size={16} />
+                                            </button>
+                                            <button onClick={() => initiateSimpleDelete(v.id!, 'visitor_passes', v.visitorName, 'Visitor')} className="text-red-600 hover:bg-red-50 p-1 rounded" title="Delete">
+                                                <Trash2 size={16} />
                                             </button>
                                         </td>
                                     </tr>
@@ -387,9 +431,12 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
                                                 <button onClick={() => handleResolveRequest(req.id!)} className="text-blue-600 hover:underline font-bold text-xs">Mark Resolved</button>
                                             )}
                                         </td>
-                                        <td className="px-6 py-4 print:hidden">
+                                        <td className="px-6 py-4 print:hidden flex gap-2">
                                             <button onClick={() => openEditModal(req, 'change_requests')} className="text-indigo-600 hover:bg-indigo-50 p-1 rounded">
                                                 <Edit size={16} />
+                                            </button>
+                                            <button onClick={() => initiateSimpleDelete(req.id!, 'change_requests', req.subject, 'Request')} className="text-red-600 hover:bg-red-50 p-1 rounded" title="Delete">
+                                                <Trash2 size={16} />
                                             </button>
                                         </td>
                                     </tr>
@@ -401,7 +448,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
             )}
         </div>
 
-        {/* Delete Confirmation Modal */}
+        {/* Delete Estate Modal (High Security) */}
         {deleteModalOpen && estateToDelete && (
             <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl animate-bounce-in p-6">
@@ -442,6 +489,36 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ setVie
                             className="w-full bg-gray-100 text-gray-700 py-3 rounded-lg font-bold hover:bg-gray-200"
                         >
                             Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* General Item Delete Modal */}
+        {simpleDeleteModalOpen && itemToDelete && (
+            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+                <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl animate-bounce-in p-6 text-center">
+                    <div className="bg-red-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Trash2 size={32} className="text-red-500" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-1">Delete {itemToDelete.typeLabel}?</h3>
+                    <p className="text-gray-500 mb-6 text-sm">
+                        Are you sure you want to delete <span className="font-bold">"{itemToDelete.title}"</span>? This action cannot be undone.
+                    </p>
+                    <div className="flex gap-3">
+                        <button 
+                            onClick={() => setSimpleDeleteModalOpen(false)}
+                            className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-700 hover:bg-gray-200"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            onClick={handleConfirmSimpleDelete}
+                            disabled={loading}
+                            className="flex-1 py-3 bg-red-600 rounded-xl font-bold text-white hover:bg-red-700"
+                        >
+                            {loading ? 'Deleting...' : 'Delete'}
                         </button>
                     </div>
                 </div>
