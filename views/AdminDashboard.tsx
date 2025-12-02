@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { LogOut, ScanLine, QrCode, Search, CheckCircle, Info, Users, ShieldCheck, XCircle, MessageSquare, AlertCircle, X, ThumbsUp, ThumbsDown, HelpCircle, Send, Bell, MessageSquareMore, Ban, Ticket, Printer, Download, UserCheck, MapPin, Plus, Trash2, Megaphone, Mail } from 'lucide-react';
+import { LogOut, ScanLine, QrCode, Search, CheckCircle, Info, Users, ShieldCheck, XCircle, MessageSquare, AlertCircle, X, ThumbsUp, ThumbsDown, HelpCircle, Send, Bell, MessageSquareMore, Ban, Ticket, Printer, Download, UserCheck, MapPin, Plus, Trash2, Megaphone, Mail, ShieldPlus, Lock } from 'lucide-react';
 import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, deleteDoc, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Estate, ViewType, Resident, Complaint, VisitRequest, AccessPin, ResidentToken, Street, Announcement, PrivateMessage } from '../types';
+import { Estate, ViewType, Resident, Complaint, VisitRequest, AccessPin, ResidentToken, Street, Announcement, PrivateMessage, EstateAdmin } from '../types';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 
 interface AdminDashboardProps {
@@ -42,6 +42,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [requestForm, setRequestForm] = useState({ subject: '', details: '' });
+  
+  // Manage Admins Modal
+  const [showManageAdminsModal, setShowManageAdminsModal] = useState(false);
+  const [estateAdmins, setEstateAdmins] = useState<EstateAdmin[]>([]);
+  const [newAdminForm, setNewAdminForm] = useState({ name: '', email: '', phone: '', passcode: '' });
   
   // Pins State
   const [numPinsToGenerate, setNumPinsToGenerate] = useState<number>(20);
@@ -126,6 +131,64 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } finally {
         setLoadingList(false);
     }
+  };
+
+  const fetchEstateAdmins = async () => {
+      try {
+          const q = query(collection(db, 'estate_admins'), where('estateId', '==', estateData.estateId));
+          const snap = await getDocs(q);
+          const admins = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as EstateAdmin));
+          setEstateAdmins(admins);
+      } catch (err) {
+          console.error("Failed to fetch admins", err);
+      }
+  };
+
+  const handleOpenManageAdmins = () => {
+      setShowManageAdminsModal(true);
+      fetchEstateAdmins();
+  };
+
+  const handleAddEstateAdmin = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setLoading(true);
+      try {
+          // Check for existing primary admin passcode conflict (not strictly necessary but good for UX)
+          if (newAdminForm.passcode === estateData.adminPasscode) {
+             // allow it, or warn. Choosing to allow as they are separate accounts.
+          }
+
+          const newAdmin: EstateAdmin = {
+              estateId: estateData.estateId,
+              name: newAdminForm.name,
+              email: newAdminForm.email,
+              phone: newAdminForm.phone,
+              passcode: newAdminForm.passcode,
+              role: 'admin',
+              createdAt: serverTimestamp() as any,
+              createdBy: estateData.adminName
+          };
+
+          await addDoc(collection(db, 'estate_admins'), newAdmin);
+          showToast("New Admin Added Successfully", "success");
+          setNewAdminForm({ name: '', email: '', phone: '', passcode: '' });
+          fetchEstateAdmins();
+      } catch (err) {
+          showToast("Failed to add admin", "error");
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleDeleteEstateAdmin = async (id: string) => {
+      if(!window.confirm("Remove this admin's access?")) return;
+      try {
+          await deleteDoc(doc(db, 'estate_admins', id));
+          setEstateAdmins(prev => prev.filter(a => a.id !== id));
+          showToast("Admin Removed", "success");
+      } catch (err) {
+          showToast("Failed to remove admin", "error");
+      }
   };
 
   const fetchMessageHistory = async (residentId: string) => {
@@ -499,6 +562,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <p className="opacity-90">Admin Dashboard</p>
         </div>
         <div className="flex gap-2">
+            <button onClick={handleOpenManageAdmins} className="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition flex items-center gap-2 text-sm">
+               <ShieldPlus size={18} /> Manage Admins
+            </button>
             <button onClick={() => setShowRequestModal(true)} className="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition flex items-center gap-2 text-sm">
                <HelpCircle size={18} /> Request Change
             </button>
@@ -982,6 +1048,88 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
         )}
       </div>
+
+      {/* Manage Admins Modal */}
+      {showManageAdminsModal && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+              <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden animate-bounce-in max-h-[90vh] overflow-y-auto">
+                  <div className="bg-slate-800 p-4 flex justify-between items-center text-white sticky top-0 z-10">
+                      <h3 className="font-bold text-lg flex items-center gap-2"><ShieldPlus size={18} /> Manage Estate Admins</h3>
+                      <button onClick={() => setShowManageAdminsModal(false)} className="hover:text-slate-300"><X size={20}/></button>
+                  </div>
+                  <div className="p-6">
+                      <div className="mb-6">
+                          <h4 className="font-bold text-gray-700 mb-3 border-b pb-2">Add New Admin</h4>
+                          <form onSubmit={handleAddEstateAdmin} className="space-y-3">
+                              <input 
+                                required 
+                                placeholder="Full Name" 
+                                className="w-full p-2 border rounded-lg"
+                                value={newAdminForm.name}
+                                onChange={e => setNewAdminForm({...newAdminForm, name: e.target.value})}
+                              />
+                              <div className="grid grid-cols-2 gap-3">
+                                  <input 
+                                    required 
+                                    type="email" 
+                                    placeholder="Email Address" 
+                                    className="w-full p-2 border rounded-lg"
+                                    value={newAdminForm.email}
+                                    onChange={e => setNewAdminForm({...newAdminForm, email: e.target.value})}
+                                  />
+                                  <input 
+                                    required 
+                                    type="tel" 
+                                    placeholder="Phone" 
+                                    className="w-full p-2 border rounded-lg"
+                                    value={newAdminForm.phone}
+                                    onChange={e => setNewAdminForm({...newAdminForm, phone: e.target.value})}
+                                  />
+                              </div>
+                              <input 
+                                required 
+                                type="password" 
+                                placeholder="Create Access Passcode" 
+                                className="w-full p-2 border rounded-lg border-indigo-200 bg-indigo-50"
+                                value={newAdminForm.passcode}
+                                onChange={e => setNewAdminForm({...newAdminForm, passcode: e.target.value})}
+                              />
+                              <button disabled={loading} className="w-full bg-slate-800 text-white py-2 rounded-lg font-bold hover:bg-slate-900 transition flex justify-center gap-2">
+                                  {loading ? 'Adding...' : <><Plus size={16}/> Add Admin</>}
+                              </button>
+                          </form>
+                      </div>
+
+                      <div>
+                          <h4 className="font-bold text-gray-700 mb-3 text-sm uppercase">Existing Admins</h4>
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                               {/* Primary Admin (Read Only) */}
+                               <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200 flex justify-between items-center">
+                                    <div>
+                                        <p className="font-bold text-sm text-indigo-900">{estateData.adminName} (Primary)</p>
+                                        <p className="text-xs text-indigo-600">{estateData.email}</p>
+                                    </div>
+                                    <ShieldCheck size={16} className="text-indigo-500"/>
+                               </div>
+
+                               {estateAdmins.map(admin => (
+                                   <div key={admin.id} className="p-3 bg-white rounded-lg border flex justify-between items-center group">
+                                        <div>
+                                            <p className="font-bold text-sm text-gray-800">{admin.name}</p>
+                                            <p className="text-xs text-gray-500">{admin.email} • {admin.phone}</p>
+                                        </div>
+                                        <button onClick={() => handleDeleteEstateAdmin(admin.id!)} className="text-red-400 hover:text-red-600 p-1 opacity-0 group-hover:opacity-100 transition">
+                                            <Trash2 size={16} />
+                                        </button>
+                                   </div>
+                               ))}
+                               {estateAdmins.length === 0 && <p className="text-center text-gray-400 text-xs py-2">No additional admins.</p>}
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
 
       {/* Resident Detail Modal */}
       {selectedResident && (

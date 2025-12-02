@@ -10,16 +10,28 @@ export interface Estate {
   estateId: string;
   name: string;
   address: string;
-  adminName: string;
+  adminName: string; // Primary Contact
   phone: string;
   email: string;
-  adminPasscode: string; // New Security Field
+  adminPasscode: string; // Primary Passcode
   createdBy: string;
   createdAt: Timestamp;
   approved: boolean;
   bankName?: string;
   accountNumber?: string;
   accountName?: string;
+}
+
+export interface EstateAdmin {
+  id?: string;
+  estateId: string;
+  name: string;
+  email: string;
+  phone: string;
+  passcode: string;
+  role: 'admin' | 'super_admin'; // Internal role within estate, default 'admin'
+  createdAt: Timestamp;
+  createdBy: string; // Name of admin who added them
 }
 
 export interface Street {

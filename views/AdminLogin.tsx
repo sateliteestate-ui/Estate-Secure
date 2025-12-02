@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Estate, ViewType } from '../types';
+import { Estate, ViewType, EstateAdmin } from '../types';
 import { Lock, ShieldCheck } from 'lucide-react';
 
 interface AdminLoginProps {
@@ -30,37 +30,56 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
     
     setLoading(true);
 
+    const estateId = estateIdInput.trim().toUpperCase();
+
     try {
-      // Query root 'estates' collection using modular syntax
-      const q = query(collection(db, 'estates'), where('estateId', '==', estateIdInput.trim().toUpperCase()));
+      // 1. Check Primary Estate Record
+      const q = query(collection(db, 'estates'), where('estateId', '==', estateId));
       const snapshot = await getDocs(q);
       
-      if (snapshot.empty) {
-        showToast("Invalid Estate ID", "error");
-      } else {
+      if (!snapshot.empty) {
+        // Found Estate, Check Primary Admin
         const docData = snapshot.docs[0].data();
         const estate = { id: snapshot.docs[0].id, ...docData } as Estate;
         
-        // Check Passcode
-        if (estate.adminPasscode && estate.adminPasscode !== adminPasscodeInput) {
-            showToast("Invalid Admin Passcode", "error");
-            setLoading(false);
+        if (estate.adminPasscode === adminPasscodeInput) {
+            // Valid Primary Admin
+            proceedLogin(estate);
             return;
         }
 
-        if (!estate.approved) {
-           showToast("Estate awaiting approval.", "error");
-        } else {
-          setEstateData(estate);
-          setView('admin-dashboard');
-          showToast("Welcome back, Admin!", "success");
+        // 2. If Primary failed, check Secondary Admins
+        const qAdmin = query(collection(db, 'estate_admins'), where('estateId', '==', estateId), where('passcode', '==', adminPasscodeInput));
+        const snapAdmin = await getDocs(qAdmin);
+
+        if (!snapAdmin.empty) {
+            // Valid Secondary Admin
+            proceedLogin(estate); // Login as the estate
+            return;
         }
+
+        // If reached here, passcode is invalid for both
+        showToast("Invalid Admin Passcode", "error");
+
+      } else {
+        showToast("Invalid Estate ID", "error");
       }
     } catch (err: any) {
       showToast("Login failed: " + err.message, "error");
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const proceedLogin = (estate: Estate) => {
+    if (!estate.approved) {
+        showToast("Estate awaiting approval.", "error");
+        setLoading(false);
+    } else {
+        setEstateData(estate);
+        setView('admin-dashboard');
+        showToast("Welcome back, Admin!", "success");
     }
   };
 
