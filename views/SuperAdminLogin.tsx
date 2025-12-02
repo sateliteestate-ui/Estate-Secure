@@ -1,6 +1,9 @@
+
 import React, { useState } from 'react';
 import { ViewType } from '../types';
 import { ShieldAlert } from 'lucide-react';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../firebase';
 
 interface SuperAdminLoginProps {
   setView: (view: ViewType) => void;
@@ -17,22 +20,39 @@ export const SuperAdminLogin: React.FC<SuperAdminLoginProps> = ({
 }) => {
   const [email, setEmail] = useState('');
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
-    // Hardcoded check as requested
-    if (email.trim().toLowerCase() === 'codegeniushub@gmail.com') {
+    const inputEmail = email.trim().toLowerCase();
+    const masterEmail = 'codegeniushub@gmail.com';
+
+    // 1. Check Hardcoded Master Admin
+    if (inputEmail === masterEmail) {
         setTimeout(() => {
             setView('super-admin-dashboard');
-            showToast("Welcome Super Admin", "success");
+            showToast("Welcome Master Super Admin", "success");
             setLoading(false);
         }, 1000);
-    } else {
-        setTimeout(() => {
+        return;
+    } 
+
+    // 2. Check Database for Assigned Super Admins
+    try {
+        const q = query(collection(db, 'super_admins'), where('email', '==', inputEmail));
+        const snapshot = await getDocs(q);
+
+        if (!snapshot.empty) {
+            setView('super-admin-dashboard');
+            showToast("Welcome Super Admin", "success");
+        } else {
             showToast("Access Denied: Invalid Email", "error");
-            setLoading(false);
-        }, 500);
+        }
+    } catch (error) {
+        console.error("Login error", error);
+        showToast("Authentication Error", "error");
+    } finally {
+        setLoading(false);
     }
   };
 

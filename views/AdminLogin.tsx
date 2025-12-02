@@ -1,8 +1,9 @@
+
 import React, { useState } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Estate, ViewType } from '../types';
-import { Lock } from 'lucide-react';
+import { Lock, ShieldCheck } from 'lucide-react';
 
 interface AdminLoginProps {
   setView: (view: ViewType) => void;
@@ -20,10 +21,12 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
   loading 
 }) => {
   const [estateIdInput, setEstateIdInput] = useState('');
+  const [adminPasscodeInput, setAdminPasscodeInput] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!estateIdInput) return showToast("Please enter Estate ID", "error");
+    if (!adminPasscodeInput) return showToast("Please enter Admin Passcode", "error");
     
     setLoading(true);
 
@@ -38,6 +41,13 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
         const docData = snapshot.docs[0].data();
         const estate = { id: snapshot.docs[0].id, ...docData } as Estate;
         
+        // Check Passcode
+        if (estate.adminPasscode && estate.adminPasscode !== adminPasscodeInput) {
+            showToast("Invalid Admin Passcode", "error");
+            setLoading(false);
+            return;
+        }
+
         if (!estate.approved) {
            showToast("Estate awaiting approval.", "error");
         } else {
@@ -56,7 +66,12 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
 
   return (
     <div className="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-lg mt-10 animate-fade-in relative">
-      <h2 className="text-2xl font-bold mb-6 text-gray-800">Admin Access</h2>
+      <div className="flex justify-center mb-4">
+        <div className="bg-indigo-100 p-3 rounded-full">
+            <ShieldCheck size={32} className="text-indigo-600"/>
+        </div>
+      </div>
+      <h2 className="text-2xl font-bold mb-6 text-gray-800 text-center">Admin Access</h2>
       <form onSubmit={handleLogin} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Estate ID</label>
@@ -68,6 +83,16 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
             placeholder="Ex: AB12CD"
           />
         </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Admin Passcode</label>
+          <input 
+            type="password" 
+            value={adminPasscodeInput}
+            onChange={(e) => setAdminPasscodeInput(e.target.value)}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+            placeholder="Enter security code"
+          />
+        </div>
         <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition disabled:opacity-50">
           {loading ? 'Verifying...' : 'Access Dashboard'}
         </button>
@@ -76,7 +101,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
         <p className="text-sm text-gray-500">New Estate?</p>
         <button onClick={() => setView('admin-register')} className="text-indigo-600 font-medium hover:underline">Register New Estate</button>
       </div>
-      <button onClick={() => setView('landing')} className="mt-4 w-full text-gray-400 text-sm hover:text-gray-600">Back to Home</button>
+      <button onClick={() => setView('landing')} className="mt-4 w-full text-center text-gray-400 text-sm hover:text-gray-600 block">Back to Home</button>
       
       <div className="mt-8 pt-6 border-t border-gray-100 text-center">
          <button 

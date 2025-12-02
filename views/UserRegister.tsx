@@ -2,8 +2,8 @@
 import React, { useState } from 'react';
 import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
-import { User, Resident, ViewType } from '../types';
-import { Camera, Upload } from 'lucide-react';
+import { User, Resident, ViewType, Street } from '../types';
+import { Camera, Upload, CheckCircle } from 'lucide-react';
 
 interface UserRegisterProps {
   setView: (view: ViewType) => void;
@@ -26,10 +26,19 @@ export const UserRegister: React.FC<UserRegisterProps> = ({
     fullName: '',
     phone: '',
     estateId: '',
-    address: '',
     annualLevy: ''
   });
+  
+  // Address Split State
+  const [houseNumber, setHouseNumber] = useState('');
+  const [selectedStreet, setSelectedStreet] = useState('');
+
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  
+  // Verification & Street State
+  const [estateVerified, setEstateVerified] = useState(false);
+  const [estateName, setEstateName] = useState('');
+  const [availableStreets, setAvailableStreets] = useState<Street[]>([]);
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -49,44 +58,69 @@ export const UserRegister: React.FC<UserRegisterProps> = ({
     }
   };
 
+  const handleVerifyEstate = async () => {
+      if (!formData.estateId) return;
+      setLoading(true);
+      try {
+          const q = query(collection(db, 'estates'), where('estateId', '==', formData.estateId.trim().toUpperCase()));
+          const estateSnap = await getDocs(q);
+
+          if (estateSnap.empty) {
+            showToast("Estate ID not found. Ask your admin.", "error");
+            setEstateVerified(false);
+            setEstateName('');
+            setAvailableStreets([]);
+          } else {
+            const estateInfo = estateSnap.docs[0].data();
+            if (!estateInfo.approved) {
+                showToast("This Estate is pending Super Admin approval.", "error");
+                setEstateVerified(false);
+            } else {
+                setEstateName(estateInfo.name);
+                setEstateVerified(true);
+                showToast("Estate Verified!", "success");
+                
+                // Fetch Streets
+                const qStreets = query(collection(db, 'estate_streets'), where('estateId', '==', formData.estateId.trim().toUpperCase()));
+                const streetsSnap = await getDocs(qStreets);
+                const streets = streetsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Street));
+                setAvailableStreets(streets);
+            }
+          }
+      } catch (err) {
+          showToast("Error verifying estate", "error");
+      } finally {
+          setLoading(false);
+      }
+  };
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!estateVerified) {
+        showToast("Please verify Estate ID first", "error");
+        return;
+    }
     setLoading(true);
 
     try {
-      // 1. Verify Estate Exists in root 'estates' collection using modular syntax
-      const q = query(collection(db, 'estates'), where('estateId', '==', formData.estateId.trim().toUpperCase()));
-      const estateSnap = await getDocs(q);
-
-      if (estateSnap.empty) {
-        showToast("Estate ID not found. Ask your admin.", "error");
-        setLoading(false);
-        return;
-      }
-
-      const estateInfo = estateSnap.docs[0].data();
-
-      // Check if Estate is Approved
-      if (!estateInfo.approved) {
-        showToast("This Estate has not been approved by the Super Admin yet. Registration unavailable.", "error");
-        setLoading(false);
-        return;
-      }
-
       // 2. Generate User ID
       const userId = 'USR-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+
+      // Combine Address
+      const fullAddress = `${houseNumber}, ${selectedStreet}`;
 
       // 3. Save Resident to root 'residents' collection
       const newResident = {
         ...formData,
         estateId: formData.estateId.trim().toUpperCase(),
-        estateName: estateInfo.name,
+        estateName: estateName,
         userId: userId,
         uid: user.uid,
         registeredAt: serverTimestamp(),
         verified: false, // Default to false
         active: true, // Default to true (Active Resident)
-        photoUrl: photoPreview || '' // Store Base64 string
+        photoUrl: photoPreview || '', // Store Base64 string
+        address: fullAddress
       };
 
       const docRef = await addDoc(collection(db, 'residents'), newResident);
@@ -137,17 +171,31 @@ export const UserRegister: React.FC<UserRegisterProps> = ({
         </div>
         <p className="text-center text-xs text-gray-400 mb-4">(Optional) Upload a profile picture</p>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-4 items-end">
            <div>
               <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Estate ID</label>
-              <input required placeholder="From Admin" type="text" className="w-full p-3 border border-indigo-200 bg-indigo-50 rounded-lg uppercase" 
-                onChange={e => setFormData({...formData, estateId: e.target.value.toUpperCase()})} />
+              <input 
+                 required 
+                 placeholder="From Admin" 
+                 type="text" 
+                 className="w-full p-3 border border-indigo-200 bg-indigo-50 rounded-lg uppercase" 
+                 onChange={e => setFormData({...formData, estateId: e.target.value.toUpperCase()})}
+                 onBlur={handleVerifyEstate} 
+              />
            </div>
-           <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Annual Levy (₦)</label>
-              <input required placeholder="Amount" type="number" className="w-full p-3 border rounded-lg" 
-                onChange={e => setFormData({...formData, annualLevy: e.target.value})} />
-           </div>
+           <button type="button" onClick={handleVerifyEstate} className="bg-indigo-600 text-white p-3 rounded-lg font-bold mb-[1px]">Verify</button>
+        </div>
+
+        {estateVerified && (
+            <div className="bg-green-50 text-green-700 p-2 rounded flex items-center gap-2 text-sm">
+                <CheckCircle size={16}/> Verified: {estateName}
+            </div>
+        )}
+
+        <div>
+           <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Annual Levy (₦)</label>
+           <input required placeholder="Amount" type="number" className="w-full p-3 border rounded-lg" 
+             onChange={e => setFormData({...formData, annualLevy: e.target.value})} />
         </div>
 
         <div>
@@ -162,13 +210,45 @@ export const UserRegister: React.FC<UserRegisterProps> = ({
             onChange={e => setFormData({...formData, phone: e.target.value})} />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">House Address</label>
-          <input required placeholder="Block B, Flat 4..." type="text" className="w-full p-3 border rounded-lg" 
-            onChange={e => setFormData({...formData, address: e.target.value})} />
+        <div className="grid grid-cols-2 gap-4">
+             <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">House Number</label>
+                <input 
+                  required 
+                  placeholder="e.g. 5A" 
+                  type="text" 
+                  className="w-full p-3 border rounded-lg" 
+                  value={houseNumber}
+                  onChange={e => setHouseNumber(e.target.value)} 
+                />
+             </div>
+             <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Street Name</label>
+                {availableStreets.length > 0 ? (
+                    <select 
+                        required 
+                        className="w-full p-3 border rounded-lg bg-white"
+                        value={selectedStreet}
+                        onChange={e => setSelectedStreet(e.target.value)}
+                    >
+                        <option value="">Select Street</option>
+                        {availableStreets.map(s => (
+                            <option key={s.id} value={s.name}>{s.name}</option>
+                        ))}
+                    </select>
+                ) : (
+                    <input 
+                        required 
+                        placeholder="Street Name" 
+                        className="w-full p-3 border rounded-lg"
+                        value={selectedStreet}
+                        onChange={e => setSelectedStreet(e.target.value)}
+                    />
+                )}
+             </div>
         </div>
 
-        <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white py-3 rounded-lg font-semibold hover:bg-emerald-700 transition mt-4">
+        <button type="submit" disabled={loading || !estateVerified} className="w-full bg-emerald-600 text-white py-3 rounded-lg font-semibold hover:bg-emerald-700 transition mt-4 disabled:opacity-50">
           {loading ? 'Processing...' : 'Generate ID Card'}
         </button>
       </form>

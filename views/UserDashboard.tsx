@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { LogOut, CreditCard, History, CheckCircle, Clock, Phone, AlertTriangle, UserPlus, MessageSquare, Upload, QrCode, X, Bell, ThumbsUp, ThumbsDown, MessageSquareMore, Banknote, Ticket, Calendar, ShieldCheck } from 'lucide-react';
+import { LogOut, CreditCard, History, CheckCircle, Clock, Phone, AlertTriangle, UserPlus, MessageSquare, Upload, QrCode, X, Bell, ThumbsUp, ThumbsDown, MessageSquareMore, Banknote, Ticket, Calendar, ShieldCheck, Megaphone, Mail, Reply } from 'lucide-react';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Resident, ViewType, Payment, VisitRequest, Estate, ResidentToken } from '../types';
+import { Resident, ViewType, Payment, VisitRequest, Estate, ResidentToken, Announcement, PrivateMessage } from '../types';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 
 interface UserDashboardProps {
@@ -21,11 +21,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 }) => {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [visitRequests, setVisitRequests] = useState<VisitRequest[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [messages, setMessages] = useState<PrivateMessage[]>([]);
+  
   const [loadingPayments, setLoadingPayments] = useState(true);
   const [estateInfo, setEstateInfo] = useState<Estate | null>(null);
   
   // Modals
-  const [activeModal, setActiveModal] = useState<'none' | 'visitor' | 'complaint' | 'payment' | 'token_activation'>('none');
+  const [activeModal, setActiveModal] = useState<'none' | 'visitor' | 'complaint' | 'payment' | 'token_activation' | 'reply'>('none');
   const [processing, setProcessing] = useState(false);
   
   // Generated Codes
@@ -46,6 +49,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   });
   const [tokenInput, setTokenInput] = useState('');
   
+  // Private Message Reply
+  const [replyMessage, setReplyMessage] = useState('');
+  
   // Approval Note State
   const [approvalNotes, setApprovalNotes] = useState<{[key: string]: string}>({});
 
@@ -53,6 +59,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     fetchPayments();
     fetchEstateDetails();
     fetchVisitRequests();
+    fetchAnnouncements();
+    fetchMessages();
   }, [residentData]);
 
   const fetchEstateDetails = async () => {
@@ -96,6 +104,30 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     } catch (err) {
        console.error("Error fetching requests", err);
     }
+  };
+
+  const fetchAnnouncements = async () => {
+      try {
+          const q = query(collection(db, 'announcements'), where('estateId', '==', residentData.estateId));
+          const snapshot = await getDocs(q);
+          const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement));
+          list.sort((a, b) => (b.date?.seconds || 0) - (a.date?.seconds || 0));
+          setAnnouncements(list);
+      } catch (err) {
+          console.error(err);
+      }
+  };
+
+  const fetchMessages = async () => {
+      try {
+          const q = query(collection(db, 'private_messages'), where('residentId', '==', residentData.id));
+          const snapshot = await getDocs(q);
+          const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PrivateMessage));
+          list.sort((a, b) => (b.date?.seconds || 0) - (a.date?.seconds || 0));
+          setMessages(list);
+      } catch (err) {
+          console.error(err);
+      }
   };
 
   const handleApproveRequest = async (req: VisitRequest) => {
@@ -289,6 +321,31 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       }
   };
 
+  const handleReplySubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!replyMessage.trim()) return;
+      setProcessing(true);
+
+      try {
+          await addDoc(collection(db, 'private_messages'), {
+              estateId: residentData.estateId,
+              residentId: residentData.id,
+              message: replyMessage.trim(),
+              date: serverTimestamp(),
+              read: false,
+              sender: 'resident'
+          });
+          showToast("Reply Sent to Admin", "success");
+          setReplyMessage('');
+          setActiveModal('none');
+          fetchMessages();
+      } catch (err) {
+          showToast("Failed to send reply", "error");
+      } finally {
+          setProcessing(false);
+      }
+  };
+
   const closeModal = () => {
       setActiveModal('none');
       setGeneratedVisitorCode(null);
@@ -356,6 +413,57 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
          </div>
       )}
       
+      {/* Messages & Announcements Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Announcements */}
+          <div className="bg-white rounded-xl shadow-sm border p-4">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2 mb-3">
+                  <Megaphone size={18} className="text-indigo-600"/> Announcements
+              </h3>
+              <div className="space-y-3 max-h-60 overflow-y-auto">
+                  {announcements.length === 0 ? <p className="text-gray-400 text-sm">No announcements.</p> : announcements.map(ann => (
+                      <div key={ann.id} className="bg-indigo-50 p-3 rounded-lg text-sm">
+                          <p className="font-bold text-gray-800">{ann.title}</p>
+                          <p className="text-gray-600 mt-1">{ann.message}</p>
+                          <p className="text-xs text-indigo-400 mt-2 text-right">{ann.date ? new Date(ann.date.seconds * 1000).toLocaleDateString() : ''}</p>
+                      </div>
+                  ))}
+              </div>
+          </div>
+          
+          {/* Private Messages */}
+          <div className="bg-white rounded-xl shadow-sm border p-4">
+              <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                      <Mail size={18} className="text-blue-600"/> Private Messages
+                  </h3>
+              </div>
+              <div className="space-y-3 max-h-60 overflow-y-auto">
+                  {messages.length === 0 ? <p className="text-gray-400 text-sm">No private messages.</p> : messages.map(msg => (
+                      <div key={msg.id} className={`p-3 rounded-lg text-sm border-l-4 flex flex-col ${msg.sender === 'admin' ? 'bg-blue-50 border-blue-400 ml-0 mr-4' : 'bg-gray-50 border-gray-400 ml-4 mr-0'}`}>
+                          <div className="flex justify-between items-start mb-1">
+                              <span className={`text-xs font-bold uppercase ${msg.sender === 'admin' ? 'text-blue-600' : 'text-gray-600'}`}>
+                                  {msg.sender === 'admin' ? 'Admin' : 'Me'}
+                              </span>
+                              <span className="text-xs text-gray-400">{msg.date ? new Date(msg.date.seconds * 1000).toLocaleDateString() : ''}</span>
+                          </div>
+                          <p className="text-gray-700">{msg.message}</p>
+                          
+                          {/* Reply Button for Admin messages */}
+                          {msg.sender === 'admin' && (
+                              <button 
+                                onClick={() => setActiveModal('reply')}
+                                className="self-end mt-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 flex items-center gap-1"
+                              >
+                                  <Reply size={12} /> Reply
+                              </button>
+                          )}
+                      </div>
+                  ))}
+              </div>
+          </div>
+      </div>
+
       {/* NOTIFICATIONS SECTION */}
       {visitRequests.length > 0 && (
         <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4 shadow-sm animate-bounce-in">
@@ -497,6 +605,29 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                             <input required placeholder="Subject (e.g. Broken Streetlight)" className="w-full p-3 border rounded-lg" value={complaintForm.subject} onChange={e => setComplaintForm({...complaintForm, subject: e.target.value})} />
                             <textarea required placeholder="Describe the issue..." rows={4} className="w-full p-3 border rounded-lg" value={complaintForm.message} onChange={e => setComplaintForm({...complaintForm, message: e.target.value})} />
                             <button disabled={processing} className="w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700">{processing ? 'Submitting...' : 'Submit Complaint'}</button>
+                        </form>
+                    </>
+                )}
+
+                {/* REPLY MODAL */}
+                {activeModal === 'reply' && (
+                    <>
+                        <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><Reply className="text-blue-600"/> Reply to Admin</h3>
+                        <form onSubmit={handleReplySubmit} className="space-y-3">
+                            <div className="bg-blue-50 p-3 rounded-lg text-sm text-blue-800">
+                                <p>Sending reply to Estate Admin.</p>
+                            </div>
+                            <textarea 
+                                required 
+                                placeholder="Type your reply here..." 
+                                rows={4} 
+                                className="w-full p-3 border rounded-lg" 
+                                value={replyMessage} 
+                                onChange={e => setReplyMessage(e.target.value)} 
+                            />
+                            <button disabled={processing} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 flex items-center justify-center gap-2">
+                                {processing ? 'Sending...' : <><Mail size={16}/> Send Reply</>}
+                            </button>
                         </form>
                     </>
                 )}

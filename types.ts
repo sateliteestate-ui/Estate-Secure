@@ -13,12 +13,38 @@ export interface Estate {
   adminName: string;
   phone: string;
   email: string;
+  adminPasscode: string; // New Security Field
   createdBy: string;
   createdAt: Timestamp;
   approved: boolean;
   bankName?: string;
   accountNumber?: string;
   accountName?: string;
+}
+
+export interface Street {
+  id?: string;
+  estateId: string;
+  name: string;
+}
+
+export interface Announcement {
+  id?: string;
+  estateId: string;
+  title: string;
+  message: string;
+  date: Timestamp;
+  postedBy: string;
+}
+
+export interface PrivateMessage {
+  id?: string;
+  estateId: string;
+  residentId: string;
+  message: string;
+  date: Timestamp;
+  read: boolean;
+  sender: 'admin' | 'resident';
 }
 
 export interface Resident {
@@ -29,7 +55,7 @@ export interface Resident {
   estateName: string;
   userId: string;
   uid: string;
-  address: string;
+  address: string; // Concatenated House No + Street
   annualLevy: string;
   registeredAt: Timestamp;
   verified: boolean;
@@ -128,6 +154,13 @@ export interface ResidentToken {
   residentId?: string;
   residentName?: string;
   serialNumber: string;
+}
+
+export interface SuperAdmin {
+  id?: string;
+  email: string;
+  addedBy: string;
+  createdAt: Timestamp;
 }
 
 export type ViewType = 

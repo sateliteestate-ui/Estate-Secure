@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { User, Estate, ViewType } from '../types';
+import { Lock } from 'lucide-react';
 
 interface AdminRegisterProps {
   setView: (view: ViewType) => void;
@@ -27,6 +28,7 @@ export const AdminRegister: React.FC<AdminRegisterProps> = ({
     adminName: '', 
     email: '', 
     phone: '',
+    adminPasscode: '',
     bankName: '',
     accountNumber: '',
     accountName: ''
@@ -99,6 +101,19 @@ export const AdminRegister: React.FC<AdminRegisterProps> = ({
               <input required type="tel" className="w-full p-3 border rounded-lg" 
                 onChange={e => setFormData({...formData, phone: e.target.value})} />
             </div>
+        </div>
+
+        <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                <Lock size={14} className="text-indigo-600"/> Create Admin Passcode
+            </label>
+            <input 
+              required 
+              type="password" 
+              placeholder="Enter a secure login code"
+              className="w-full p-3 border rounded-lg bg-indigo-50 border-indigo-100" 
+              onChange={e => setFormData({...formData, adminPasscode: e.target.value})} 
+            />
         </div>
 
         <div className="pt-4 border-t border-gray-100">

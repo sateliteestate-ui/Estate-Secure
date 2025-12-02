@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { LogOut, ScanLine, QrCode, Search, CheckCircle, Info, Users, ShieldCheck, XCircle, MessageSquare, AlertCircle, X, ThumbsUp, ThumbsDown, HelpCircle, Send, Bell, MessageSquareMore, Ban, Ticket, Printer, Download, UserCheck } from 'lucide-react';
-import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { LogOut, ScanLine, QrCode, Search, CheckCircle, Info, Users, ShieldCheck, XCircle, MessageSquare, AlertCircle, X, ThumbsUp, ThumbsDown, HelpCircle, Send, Bell, MessageSquareMore, Ban, Ticket, Printer, Download, UserCheck, MapPin, Plus, Trash2, Megaphone, Mail } from 'lucide-react';
+import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, deleteDoc, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Estate, ViewType, Resident, Complaint, VisitRequest, AccessPin, ResidentToken } from '../types';
+import { Estate, ViewType, Resident, Complaint, VisitRequest, AccessPin, ResidentToken, Street, Announcement, PrivateMessage } from '../types';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 
 interface AdminDashboardProps {
@@ -25,13 +25,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const [scanInput, setScanInput] = useState('');
   const [scannedUser, setScannedUser] = useState<Resident | null>(null);
+  
+  // Lists
   const [residentList, setResidentList] = useState<Resident[]>([]);
   const [complaintList, setComplaintList] = useState<Complaint[]>([]);
   const [visitRequests, setVisitRequests] = useState<VisitRequest[]>([]);
   const [accessPins, setAccessPins] = useState<AccessPin[]>([]);
   const [residentTokens, setResidentTokens] = useState<ResidentToken[]>([]);
+  const [streetList, setStreetList] = useState<Street[]>([]);
+  const [announcementList, setAnnouncementList] = useState<Announcement[]>([]);
+
   const [loadingList, setLoadingList] = useState(true);
-  const [activeTab, setActiveTab] = useState<'residents' | 'complaints' | 'visits' | 'pins' | 'resident_tokens'>('residents');
+  const [activeTab, setActiveTab] = useState<'residents' | 'complaints' | 'visits' | 'pins' | 'resident_tokens' | 'streets' | 'announcements'>('residents');
   
   // Modal State
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
@@ -46,11 +51,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Approval Notes
   const [adminNotes, setAdminNotes] = useState<{[key: string]: string}>({});
 
+  // Street & Announcement Forms
+  const [newStreetName, setNewStreetName] = useState('');
+  const [announcementForm, setAnnouncementForm] = useState({ title: '', message: '' });
+  
+  // Private Message
+  const [privateMessage, setPrivateMessage] = useState('');
+  const [messageHistory, setMessageHistory] = useState<PrivateMessage[]>([]);
+
   const estateQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${estateData.estateId}`;
 
   useEffect(() => {
     fetchData();
   }, [estateData.estateId]);
+
+  useEffect(() => {
+      if(selectedResident) {
+          fetchMessageHistory(selectedResident.id!);
+      } else {
+          setMessageHistory([]);
+          setPrivateMessage('');
+      }
+  }, [selectedResident]);
 
   const fetchData = async () => {
     setLoadingList(true);
@@ -86,10 +108,110 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const tokens = snapshotTokens.docs.map(doc => ({ id: doc.id, ...doc.data() } as ResidentToken));
         setResidentTokens(tokens);
 
+        // Fetch Streets
+        const qStreets = query(collection(db, 'estate_streets'), where('estateId', '==', estateData.estateId));
+        const snapshotStreets = await getDocs(qStreets);
+        const streets = snapshotStreets.docs.map(doc => ({ id: doc.id, ...doc.data() } as Street));
+        setStreetList(streets);
+
+        // Fetch Announcements
+        const qAnnounce = query(collection(db, 'announcements'), where('estateId', '==', estateData.estateId));
+        const snapshotAnnounce = await getDocs(qAnnounce);
+        const announcements = snapshotAnnounce.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement));
+        announcements.sort((a, b) => (b.date?.seconds || 0) - (a.date?.seconds || 0));
+        setAnnouncementList(announcements);
+
     } catch (err) {
         console.error("Error fetching data", err);
     } finally {
         setLoadingList(false);
+    }
+  };
+
+  const fetchMessageHistory = async (residentId: string) => {
+      try {
+          const q = query(collection(db, 'private_messages'), where('residentId', '==', residentId));
+          const snapshot = await getDocs(q);
+          const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PrivateMessage));
+          msgs.sort((a, b) => (a.date?.seconds || 0) - (b.date?.seconds || 0)); // Oldest first
+          setMessageHistory(msgs);
+      } catch(err) {
+          console.error("Failed to load messages", err);
+      }
+  };
+
+  const handleAddStreet = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if(!newStreetName.trim()) return;
+    setLoading(true);
+    try {
+        await addDoc(collection(db, 'estate_streets'), {
+            estateId: estateData.estateId,
+            name: newStreetName.trim()
+        });
+        setNewStreetName('');
+        showToast("Street Added", "success");
+        fetchData();
+    } catch(err) {
+        showToast("Failed to add street", "error");
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  const handleDeleteStreet = async (id: string) => {
+    if(!window.confirm("Delete this street?")) return;
+    try {
+        await deleteDoc(doc(db, 'estate_streets', id));
+        setStreetList(prev => prev.filter(s => s.id !== id));
+        showToast("Street Deleted", "success");
+    } catch(err) {
+        showToast("Failed to delete", "error");
+    }
+  };
+
+  const handlePostAnnouncement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+        await addDoc(collection(db, 'announcements'), {
+            estateId: estateData.estateId,
+            title: announcementForm.title,
+            message: announcementForm.message,
+            date: serverTimestamp(),
+            postedBy: estateData.adminName
+        });
+        setAnnouncementForm({ title: '', message: '' });
+        showToast("Announcement Posted", "success");
+        fetchData();
+    } catch(err) {
+        showToast("Failed to post", "error");
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  const handleSendPrivateMessage = async () => {
+    if(!selectedResident?.id || !privateMessage.trim()) return;
+    setLoading(true);
+    try {
+        const newMsg = {
+            estateId: estateData.estateId,
+            residentId: selectedResident.id,
+            message: privateMessage.trim(),
+            date: serverTimestamp(),
+            read: false,
+            sender: 'admin'
+        };
+        await addDoc(collection(db, 'private_messages'), newMsg);
+        setPrivateMessage('');
+        showToast("Message Sent to Resident", "success");
+        // Refresh history
+        fetchMessageHistory(selectedResident.id);
+    } catch(err) {
+        showToast("Failed to send message", "error");
+    } finally {
+        setLoading(false);
     }
   };
 
@@ -527,45 +649,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Tabs for List */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="border-b border-gray-100 flex overflow-x-auto">
-            <button 
-                className={`px-6 py-4 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'residents' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`}
-                onClick={() => setActiveTab('residents')}
-            >
-                <Users size={18} /> Residents
-                <span className="bg-gray-100 px-2 py-0.5 rounded-full text-xs text-gray-600 ml-2">{residentList.length}</span>
+            <button className={`px-4 py-3 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'residents' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`} onClick={() => setActiveTab('residents')}>
+                <Users size={16} /> Residents
             </button>
-            <button 
-                className={`px-6 py-4 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'complaints' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`}
-                onClick={() => setActiveTab('complaints')}
-            >
-                <MessageSquare size={18} /> Complaints
-                <span className="bg-gray-100 px-2 py-0.5 rounded-full text-xs text-gray-600 ml-2">{complaintList.length}</span>
+            <button className={`px-4 py-3 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'complaints' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`} onClick={() => setActiveTab('complaints')}>
+                <MessageSquare size={16} /> Complaints
             </button>
-            <button 
-                className={`px-6 py-4 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'visits' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`}
-                onClick={() => setActiveTab('visits')}
-            >
-                <Bell size={18} /> Visits
-                <span className={`px-2 py-0.5 rounded-full text-xs ml-2 ${visitRequests.length > 0 ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 text-gray-600'}`}>{visitRequests.length}</span>
+            <button className={`px-4 py-3 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'visits' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`} onClick={() => setActiveTab('visits')}>
+                <Bell size={16} /> Visits
+                {visitRequests.length > 0 && <span className="bg-red-500 text-white text-[10px] px-1.5 rounded-full">{visitRequests.length}</span>}
             </button>
-            <button 
-                className={`px-6 py-4 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'pins' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`}
-                onClick={() => setActiveTab('pins')}
-            >
-                <Ticket size={18} /> Access Pins
-                <span className="bg-gray-100 px-2 py-0.5 rounded-full text-xs text-gray-600 ml-2">{accessPins.length}</span>
+            <button className={`px-4 py-3 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'pins' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`} onClick={() => setActiveTab('pins')}>
+                <Ticket size={16} /> Pins
             </button>
-            <button 
-                className={`px-6 py-4 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'resident_tokens' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`}
-                onClick={() => setActiveTab('resident_tokens')}
-            >
-                <UserCheck size={18} /> Resident Tokens
-                <span className="bg-gray-100 px-2 py-0.5 rounded-full text-xs text-gray-600 ml-2">{residentTokens.length}</span>
+            <button className={`px-4 py-3 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'resident_tokens' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`} onClick={() => setActiveTab('resident_tokens')}>
+                <UserCheck size={16} /> Tokens
+            </button>
+            <button className={`px-4 py-3 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'streets' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`} onClick={() => setActiveTab('streets')}>
+                <MapPin size={16} /> Streets
+            </button>
+            <button className={`px-4 py-3 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'announcements' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`} onClick={() => setActiveTab('announcements')}>
+                <Megaphone size={16} /> Alerts
             </button>
         </div>
         
         {loadingList ? <LoadingSpinner /> : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto min-h-[300px]">
+                {/* RESIDENTS TAB */}
                 {activeTab === 'residents' && (
                     <table className="w-full text-left text-sm text-gray-600">
                         <thead className="bg-gray-50 text-gray-500 uppercase font-medium">
@@ -608,6 +718,71 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             ))}
                         </tbody>
                     </table>
+                )}
+
+                {/* STREETS TAB */}
+                {activeTab === 'streets' && (
+                    <div className="p-6">
+                        <div className="mb-6 flex gap-2">
+                            <input 
+                                className="border p-2 rounded flex-1" 
+                                placeholder="Enter new street name" 
+                                value={newStreetName} 
+                                onChange={e => setNewStreetName(e.target.value)} 
+                            />
+                            <button onClick={handleAddStreet} className="bg-indigo-600 text-white px-4 py-2 rounded font-bold hover:bg-indigo-700 flex items-center gap-1">
+                                <Plus size={16} /> Add Street
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {streetList.length === 0 ? <p className="text-gray-400">No streets added.</p> : streetList.map(street => (
+                                <div key={street.id} className="border p-3 rounded-lg flex justify-between items-center bg-gray-50">
+                                    <span className="font-semibold text-gray-700">{street.name}</span>
+                                    <button onClick={() => handleDeleteStreet(street.id!)} className="text-red-500 hover:text-red-700 p-1">
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* ANNOUNCEMENTS TAB */}
+                {activeTab === 'announcements' && (
+                    <div className="p-6">
+                         <div className="bg-gray-50 p-4 rounded-xl border mb-6">
+                             <h4 className="font-bold text-gray-700 mb-2">Post New Announcement</h4>
+                             <input 
+                                className="w-full mb-2 p-2 border rounded" 
+                                placeholder="Title" 
+                                value={announcementForm.title} 
+                                onChange={e => setAnnouncementForm({...announcementForm, title: e.target.value})} 
+                             />
+                             <textarea 
+                                className="w-full mb-2 p-2 border rounded" 
+                                rows={3} 
+                                placeholder="Message to all residents..."
+                                value={announcementForm.message}
+                                onChange={e => setAnnouncementForm({...announcementForm, message: e.target.value})}
+                             />
+                             <button onClick={handlePostAnnouncement} className="bg-indigo-600 text-white px-4 py-2 rounded font-bold hover:bg-indigo-700 flex items-center gap-1">
+                                 <Send size={16} /> Post Announcement
+                             </button>
+                         </div>
+                         
+                         <div className="space-y-4">
+                             {announcementList.length === 0 ? <p className="text-gray-400 text-center">No announcements yet.</p> : announcementList.map(ann => (
+                                 <div key={ann.id} className="border p-4 rounded-xl shadow-sm hover:shadow-md transition">
+                                     <div className="flex justify-between items-start">
+                                         <h5 className="font-bold text-lg text-gray-800">{ann.title}</h5>
+                                         <span className="text-xs text-gray-500">{ann.date ? new Date(ann.date.seconds * 1000).toLocaleDateString() : '-'}</span>
+                                     </div>
+                                     <p className="text-gray-600 mt-1">{ann.message}</p>
+                                     <p className="text-xs text-indigo-500 mt-2 font-semibold">Posted by {ann.postedBy}</p>
+                                 </div>
+                             ))}
+                         </div>
+                    </div>
                 )}
 
                 {activeTab === 'complaints' && (
@@ -722,8 +897,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 </div>
                             ))}
                         </div>
-
-                        {/* Hidden Container for PDF Printing (4 cols x 5 rows = 20 per page) */}
+                         {/* Hidden Container for PDF Printing */}
                         <div id="pins-print-container" style={{display: 'none', width: '210mm', background: 'white', padding: '10mm'}}>
                             <div className="grid grid-cols-4 gap-4">
                                 {accessPins.map((pin) => (
@@ -784,8 +958,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 </div>
                             ))}
                         </div>
-
-                         {/* Hidden Container for PDF Printing Resident Tokens (4x5 grid for A4) */}
+                        
+                         {/* Hidden Container for PDF Printing */}
                         <div id="tokens-print-container" style={{display: 'none', width: '210mm', background: 'white', padding: '10mm'}}>
                             <div className="grid grid-cols-4 gap-4">
                                 {residentTokens.map((token) => (
@@ -879,6 +1053,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               </div>
                           </div>
                       )}
+                      
+                      {/* Private Message Section */}
+                      <div className="border-t pt-4">
+                          <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Private Messages</label>
+                          
+                          {/* Chat History */}
+                          <div className="bg-gray-50 rounded-lg p-3 max-h-40 overflow-y-auto mb-3 space-y-2 border">
+                              {messageHistory.length === 0 ? (
+                                  <p className="text-center text-xs text-gray-400">No messages yet.</p>
+                              ) : messageHistory.map(msg => (
+                                  <div key={msg.id} className={`p-2 rounded-lg text-xs max-w-[85%] ${msg.sender === 'admin' ? 'bg-blue-100 text-blue-900 ml-auto' : 'bg-white text-gray-800 border'}`}>
+                                      <div className="flex justify-between mb-1 opacity-70">
+                                          <span className="font-bold">{msg.sender === 'admin' ? 'Me' : 'Resident'}</span>
+                                          <span>{msg.date ? new Date(msg.date.seconds * 1000).toLocaleDateString() : ''}</span>
+                                      </div>
+                                      <p>{msg.message}</p>
+                                  </div>
+                              ))}
+                          </div>
+
+                          <div className="flex gap-2">
+                              <textarea 
+                                className="w-full p-2 border rounded-lg text-sm bg-white"
+                                placeholder={`Send message to ${selectedResident.fullName}...`}
+                                rows={2}
+                                value={privateMessage}
+                                onChange={e => setPrivateMessage(e.target.value)}
+                              />
+                              <button onClick={handleSendPrivateMessage} className="bg-blue-600 text-white px-3 rounded-lg hover:bg-blue-700 flex flex-col items-center justify-center text-xs">
+                                  <Mail size={16} /> Send
+                              </button>
+                          </div>
+                      </div>
 
                       <div className="pt-4 border-t space-y-3">
                            <div className="flex gap-4">
