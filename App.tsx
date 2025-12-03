@@ -88,7 +88,18 @@ export default function App() {
 
     checkDeepLink();
 
-    return () => unsubscribe();
+    // 4. Offline/Online Status Listeners
+    const handleOnline = () => showToast("You are back online. Syncing data...", "success");
+    const handleOffline = () => showToast("You are offline. App working in offline mode.", "error");
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {

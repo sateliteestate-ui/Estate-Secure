@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { LogOut, CreditCard, History, CheckCircle, Clock, Phone, AlertTriangle, UserPlus, MessageSquare, Upload, QrCode, X, Bell, ThumbsUp, ThumbsDown, MessageSquareMore, Banknote, Ticket, Calendar, ShieldCheck, Megaphone, Mail, Reply } from 'lucide-react';
+import { LogOut, CreditCard, History, CheckCircle, Clock, Phone, AlertTriangle, UserPlus, MessageSquare, Upload, QrCode, X, Bell, ThumbsUp, ThumbsDown, MessageSquareMore, Banknote, Ticket, Calendar, ShieldCheck, Megaphone, Mail, Reply, XCircle } from 'lucide-react';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Resident, ViewType, Payment, VisitRequest, Estate, ResidentToken, Announcement, PrivateMessage } from '../types';
@@ -541,20 +541,25 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     <div className="text-center py-10 text-gray-400">No payment records found.</div>
                   ) : (
                     payments.map((payment) => (
-                       <div key={payment.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100 hover:bg-gray-100 transition">
+                       <div key={payment.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100 hover:bg-gray-100 transition gap-3">
                           <div className="flex items-center gap-4">
-                             <div className={`p-2 rounded-full ${payment.status === 'completed' ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600'}`}>
-                                {payment.status === 'completed' ? <CheckCircle size={20} /> : <Clock size={20} />}
+                             <div className={`p-3 rounded-full flex-shrink-0 ${payment.status === 'completed' ? 'bg-green-100 text-green-600' : (payment.status === 'failed' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600')}`}>
+                                {payment.status === 'completed' ? <CheckCircle size={24} /> : (payment.status === 'failed' ? <XCircle size={24} /> : <Clock size={24} />)}
                              </div>
                              <div>
-                                <p className="font-bold text-gray-800">Levy Payment</p>
-                                <p className="text-xs text-gray-500 font-mono">{payment.reference}</p>
+                                <p className="font-bold text-gray-800 text-lg">Levy Payment</p>
+                                <div className="flex items-center gap-2">
+                                   <span className="text-xs text-gray-500 font-mono bg-white px-1.5 py-0.5 rounded border">Ref: {payment.reference}</span>
+                                   <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${payment.status === 'completed' ? 'bg-green-200 text-green-800' : (payment.status === 'failed' ? 'bg-red-200 text-red-800' : 'bg-yellow-200 text-yellow-800')}`}>
+                                      {payment.status}
+                                   </span>
+                                </div>
                              </div>
                           </div>
-                          <div className="text-right">
-                             <p className="font-bold text-gray-800">₦{payment.amount}</p>
+                          <div className="flex justify-between sm:block sm:text-right pl-14 sm:pl-0">
+                             <p className="font-bold text-gray-800 text-lg">₦{Number(payment.amount).toLocaleString()}</p>
                              <p className="text-xs text-gray-500">
-                                {payment.date ? new Date(payment.date.seconds * 1000).toLocaleDateString() : 'Just now'}
+                                {payment.date ? new Date(payment.date.seconds * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' }) : 'Just now'}
                              </p>
                           </div>
                        </div>
